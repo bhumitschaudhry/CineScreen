@@ -120,6 +120,88 @@
       color: #fff;
     }
 
+    .settings-group {
+      margin-bottom: 20px;
+    }
+
+    .settings-group h4 {
+      margin: 0 0 10px 0;
+      font-size: 12px;
+      font-weight: 600;
+      color: #ccc;
+      text-transform: uppercase;
+    }
+
+    .setting-item {
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+
+    .setting-item label {
+      min-width: 80px;
+      color: #999;
+    }
+
+    .setting-item input[type="range"] {
+      flex: 1;
+      height: 4px;
+      background: #3a3a3a;
+      border-radius: 2px;
+      outline: none;
+    }
+
+    .setting-item input[type="range"]::-webkit-slider-thumb {
+      appearance: none;
+      width: 12px;
+      height: 12px;
+      background: #4a9eff;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+
+    .setting-item input[type="range"]::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      background: #4a9eff;
+      border-radius: 50%;
+      cursor: pointer;
+      border: none;
+    }
+
+    .setting-item input[type="color"] {
+      width: 40px;
+      height: 24px;
+      border: 1px solid #4a4a4a;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .setting-item select {
+      flex: 1;
+      background: #3a3a3a;
+      border: 1px solid #4a4a4a;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .setting-item input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+
+    .setting-item span {
+      min-width: 40px;
+      color: #999;
+      font-size: 11px;
+    }
+
     #timeline-container {
       background: #2a2a2a;
       border-top: 1px solid #3a3a3a;
@@ -276,7 +358,68 @@
         </div>
         <div class="sidebar-section">
           <h3>Properties</h3>
-          <div id="properties-panel"></div>
+          <div id="properties-panel">
+            <div class="settings-group">
+              <h4>Cursor Settings</h4>
+              <div class="setting-item">
+                <label for="cursor-size-setting">Size:</label>
+                <input type="range" id="cursor-size-setting" min="10" max="100" value="60">
+                <span id="cursor-size-value-setting">60</span>px
+              </div>
+              <div class="setting-item">
+                <label for="cursor-shape-setting">Shape:</label>
+                <select id="cursor-shape-setting">
+                  <option value="arrow">Arrow</option>
+                  <option value="pointer">Pointer</option>
+                  <option value="hand">Hand</option>
+                  <option value="crosshair">Crosshair</option>
+                </select>
+              </div>
+              <div class="setting-item">
+                <label for="cursor-color-setting">Color:</label>
+                <input type="color" id="cursor-color-setting" value="#000000">
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <h4>Zoom Settings</h4>
+              <div class="setting-item">
+                <label>
+                  <input type="checkbox" id="zoom-enabled-setting">
+                  Enable Zoom
+                </label>
+              </div>
+              <div class="setting-item" id="zoom-level-setting-item">
+                <label for="zoom-level-setting">Level:</label>
+                <input type="range" id="zoom-level-setting" min="1.5" max="3.0" step="0.1" value="2.0">
+                <span id="zoom-level-value-setting">2.0</span>x
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <h4>Mouse Effects</h4>
+              <div class="setting-item">
+                <label>
+                  <input type="checkbox" id="click-circles-enabled-setting">
+                  Click Circles
+                </label>
+              </div>
+              <div class="setting-item" id="click-circles-settings-item">
+                <label for="click-circles-size-setting">Size:</label>
+                <input type="range" id="click-circles-size-setting" min="20" max="100" step="5" value="40">
+                <span id="click-circles-size-value-setting">40</span>px
+              </div>
+              <div class="setting-item" id="click-circles-color-item">
+                <label for="click-circles-color-setting">Color:</label>
+                <input type="color" id="click-circles-color-setting" value="#3b82f6">
+              </div>
+              <div class="setting-item" id="click-circles-duration-item">
+                <label for="click-circles-duration-setting">Duration:</label>
+                <input type="range" id="click-circles-duration-setting" min="200" max="1000" step="50" value="500">
+                <span id="click-circles-duration-value-setting">500</span>ms
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

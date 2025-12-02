@@ -245,6 +245,9 @@ async function loadStudioData() {
       cursorEditor?.setMetadata(metadata);
       zoomEditor?.setMetadata(metadata);
       keyframePanel?.setMetadata(metadata);
+      
+      // Set up settings panel with loaded metadata
+      setupSettingsPanel();
     }
 
     updateStatus('Ready');
@@ -255,6 +258,157 @@ async function loadStudioData() {
     updateStatus(`Error: ${errorMessage}`);
     alert(`Failed to load studio data: ${errorMessage}`);
   }
+}
+
+function setupSettingsPanel() {
+  if (!metadata) return;
+
+  // Get settings elements
+  const cursorSizeSlider = document.getElementById('cursor-size-setting') as HTMLInputElement;
+  const cursorSizeValue = document.getElementById('cursor-size-value-setting') as HTMLSpanElement;
+  const cursorShapeSelect = document.getElementById('cursor-shape-setting') as HTMLSelectElement;
+  const cursorColorInput = document.getElementById('cursor-color-setting') as HTMLInputElement;
+  
+  const zoomEnabledCheckbox = document.getElementById('zoom-enabled-setting') as HTMLInputElement;
+  const zoomLevelSlider = document.getElementById('zoom-level-setting') as HTMLInputElement;
+  const zoomLevelValue = document.getElementById('zoom-level-value-setting') as HTMLSpanElement;
+  
+  const clickCirclesEnabled = document.getElementById('click-circles-enabled-setting') as HTMLInputElement;
+  const clickCirclesSizeSlider = document.getElementById('click-circles-size-setting') as HTMLInputElement;
+  const clickCirclesSizeValue = document.getElementById('click-circles-size-value-setting') as HTMLSpanElement;
+  const clickCirclesColorPicker = document.getElementById('click-circles-color-setting') as HTMLInputElement;
+  const clickCirclesDurationSlider = document.getElementById('click-circles-duration-setting') as HTMLInputElement;
+  const clickCirclesDurationValue = document.getElementById('click-circles-duration-value-setting') as HTMLSpanElement;
+
+  // Load current settings from metadata
+  if (metadata.cursor.config) {
+    cursorSizeSlider.value = String(metadata.cursor.config.size || 60);
+    cursorSizeValue.textContent = String(metadata.cursor.config.size || 60);
+    cursorShapeSelect.value = metadata.cursor.config.shape || 'arrow';
+    cursorColorInput.value = metadata.cursor.config.color || '#000000';
+  }
+
+  if (metadata.zoom.config) {
+    zoomEnabledCheckbox.checked = metadata.zoom.config.enabled || false;
+    zoomLevelSlider.value = String(metadata.zoom.config.level || 2.0);
+    zoomLevelValue.textContent = String(metadata.zoom.config.level || 2.0);
+    updateZoomSettingsVisibility();
+  }
+
+  if (metadata.effects) {
+    if (metadata.effects.clickCircles) {
+      clickCirclesEnabled.checked = metadata.effects.clickCircles.enabled || false;
+      clickCirclesSizeSlider.value = String(metadata.effects.clickCircles.size || 40);
+      clickCirclesSizeValue.textContent = String(metadata.effects.clickCircles.size || 40);
+      clickCirclesColorPicker.value = metadata.effects.clickCircles.color || '#3b82f6';
+      clickCirclesDurationSlider.value = String(metadata.effects.clickCircles.duration || 500);
+      clickCirclesDurationValue.textContent = String(metadata.effects.clickCircles.duration || 500);
+      updateClickCirclesSettingsVisibility();
+    }
+  }
+
+  // Cursor settings
+  cursorSizeSlider.addEventListener('input', (e) => {
+    const value = (e.target as HTMLInputElement).value;
+    cursorSizeValue.textContent = value;
+    if (metadata) {
+      metadata.cursor.config.size = parseInt(value);
+      renderPreview();
+    }
+  });
+
+  cursorShapeSelect.addEventListener('change', (e) => {
+    if (metadata) {
+      metadata.cursor.config.shape = (e.target as HTMLSelectElement).value as any;
+      renderPreview();
+    }
+  });
+
+  cursorColorInput.addEventListener('input', (e) => {
+    if (metadata) {
+      metadata.cursor.config.color = (e.target as HTMLInputElement).value;
+      renderPreview();
+    }
+  });
+
+  // Zoom settings
+  zoomEnabledCheckbox.addEventListener('change', () => {
+    if (metadata) {
+      metadata.zoom.config.enabled = zoomEnabledCheckbox.checked;
+      updateZoomSettingsVisibility();
+      renderPreview();
+    }
+  });
+
+  zoomLevelSlider.addEventListener('input', (e) => {
+    const value = (e.target as HTMLInputElement).value;
+    zoomLevelValue.textContent = value;
+    if (metadata) {
+      metadata.zoom.config.level = parseFloat(value);
+      renderPreview();
+    }
+  });
+
+  // Click circles settings
+  clickCirclesEnabled.addEventListener('change', () => {
+    if (metadata) {
+      if (!metadata.effects) {
+        metadata.effects = {
+          clickCircles: { enabled: false, size: 40, color: '#3b82f6', duration: 500 },
+          trail: { enabled: false, length: 10, fadeSpeed: 0.5, color: '#3b82f6' },
+          highlightRing: { enabled: false, size: 40, color: '#3b82f6', pulseSpeed: 0.5 },
+        };
+      }
+      metadata.effects.clickCircles.enabled = clickCirclesEnabled.checked;
+      updateClickCirclesSettingsVisibility();
+    }
+  });
+
+  clickCirclesSizeSlider.addEventListener('input', (e) => {
+    const value = (e.target as HTMLInputElement).value;
+    clickCirclesSizeValue.textContent = value;
+    if (metadata && metadata.effects) {
+      metadata.effects.clickCircles.size = parseInt(value);
+    }
+  });
+
+  clickCirclesColorPicker.addEventListener('input', (e) => {
+    if (metadata && metadata.effects) {
+      metadata.effects.clickCircles.color = (e.target as HTMLInputElement).value;
+    }
+  });
+
+  clickCirclesDurationSlider.addEventListener('input', (e) => {
+    const value = (e.target as HTMLInputElement).value;
+    clickCirclesDurationValue.textContent = value;
+    if (metadata && metadata.effects) {
+      metadata.effects.clickCircles.duration = parseInt(value);
+    }
+  });
+
+  function updateZoomSettingsVisibility() {
+    const zoomLevelItem = document.getElementById('zoom-level-setting-item');
+    if (zoomLevelItem) {
+      zoomLevelItem.style.display = zoomEnabledCheckbox.checked ? 'block' : 'none';
+    }
+  }
+
+  function updateClickCirclesSettingsVisibility() {
+    const items = [
+      document.getElementById('click-circles-settings-item'),
+      document.getElementById('click-circles-color-item'),
+      document.getElementById('click-circles-duration-item'),
+    ];
+    items.forEach(item => {
+      if (item) {
+        item.style.display = clickCirclesEnabled.checked ? 'block' : 'none';
+      }
+    });
+  }
+
+  // Initialize visibility
+  updateZoomSettingsVisibility();
+  updateClickCirclesSettingsVisibility();
 }
 
 function setupEventListeners() {
@@ -546,30 +700,51 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
     return; // No actual clicks
   }
 
+  // Normalize click timestamps to start from 0 (relative to video start)
+  // This ensures clicks align with video playback, which always starts at timestamp 0
+  // Find the earliest click timestamp and subtract it from all clicks
+  const earliestClickTime = Math.min(...clickDownEvents.map(c => c.timestamp));
+  const normalizedClicks = clickDownEvents.map(c => ({
+    ...c,
+    timestamp: Math.max(0, c.timestamp - earliestClickTime) // Ensure no negative timestamps
+  }));
+
   // Check if we should auto-create keyframes
   // Only create if there are significantly more clicks than keyframes
   const existingKeyframes = metadata.cursor.keyframes.length;
   const clickCount = clickDownEvents.length;
+  
+  // Early exit: if we already have enough keyframes, skip
+  // We expect 2 keyframes per click (before + at click), so check for that
+  if (existingKeyframes >= clickCount * 2) {
+    logger.debug(`Skipping auto-create: ${existingKeyframes} keyframes already exist for ${clickCount} clicks`);
+    return;
+  }
   
   // If there are clicks but very few keyframes (less than half the clicks),
   // auto-create keyframes from clicks
   if (existingKeyframes < clickCount / 2) {
     const startTime = performance.now();
     logger.info(`Auto-creating cursor keyframes from ${clickCount} clicks (existing: ${existingKeyframes})`);
+    if (earliestClickTime > 0) {
+      logger.debug(`Normalizing click timestamps: earliest was ${earliestClickTime}ms, now starts at 0`);
+    }
     
     // Get initial cursor position (first keyframe or first click position)
     let initialX = 0;
     let initialY = 0;
-    if (metadata.cursor.keyframes.length > 0) {
+    const hasExistingKeyframes = metadata.cursor.keyframes.length > 0;
+    
+    if (hasExistingKeyframes) {
       initialX = metadata.cursor.keyframes[0].x;
       initialY = metadata.cursor.keyframes[0].y;
-    } else if (clickDownEvents.length > 0) {
-      initialX = clickDownEvents[0].x;
-      initialY = clickDownEvents[0].y;
+    } else if (normalizedClicks.length > 0) {
+      initialX = normalizedClicks[0].x;
+      initialY = normalizedClicks[0].y;
     }
 
-    // Clear existing keyframes if we're auto-creating
-    if (existingKeyframes === 0) {
+    // Clear existing keyframes if we're auto-creating from scratch
+    if (!hasExistingKeyframes) {
       metadata.cursor.keyframes = [];
       
       // Add initial keyframe at timestamp 0
@@ -592,8 +767,8 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
     const newKeyframes: CursorKeyframe[] = [];
 
     // Add keyframes for each click - create two keyframes per click
-    for (let i = 0; i < clickDownEvents.length; i++) {
-      const click = clickDownEvents[i];
+    for (let i = 0; i < normalizedClicks.length; i++) {
+      const click = normalizedClicks[i];
       
       // Keyframe 1: 7 frames before the click, at previous click's position
       const beforeTimestamp = Math.max(0, click.timestamp - frameDurationMs);
@@ -661,8 +836,8 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
     
     if (!lastKeyframe || lastKeyframe.timestamp < videoDuration - 100) {
       // Add final keyframe at the last click position or last keyframe position
-      const finalX = lastKeyframe?.x || clickDownEvents[clickDownEvents.length - 1]?.x || initialX;
-      const finalY = lastKeyframe?.y || clickDownEvents[clickDownEvents.length - 1]?.y || initialY;
+      const finalX = lastKeyframe?.x || normalizedClicks[normalizedClicks.length - 1]?.x || initialX;
+      const finalY = lastKeyframe?.y || normalizedClicks[normalizedClicks.length - 1]?.y || initialY;
       
       metadata.cursor.keyframes.push({
         timestamp: videoDuration,
