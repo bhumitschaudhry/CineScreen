@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { setLogSender } from './screen-capture';
 import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { ScreenCapture } from './screen-capture';
@@ -9,6 +10,24 @@ import {
   requestMissingPermissions,
 } from './permissions';
 import type { RecordingConfig, CursorConfig, RecordingState } from '../types';
+
+// Debug logging helper
+const DEBUG = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
+const debugLog = (...args: unknown[]) => {
+  const message = args.map(arg => 
+    typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+  ).join(' ');
+  const logEntry = `[Main] ${message}`;
+  
+  if (DEBUG) {
+    console.log(logEntry);
+  }
+  
+  // Send log to renderer if window exists
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('debug-log', logEntry);
+  }
+};
 
 let mainWindow: BrowserWindow | null = null;
 let screenCapture: ScreenCapture | null = null;
@@ -25,8 +44,8 @@ function createWindow(): void {
     : join(__dirname, '../renderer/preload.js');
 
   mainWindow = new BrowserWindow({
-    width: 400,
-    height: 600,
+    width: 500,
+    height: 800,
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
@@ -46,13 +65,24 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // Set up log forwarding for screen capture after window is ready
+  mainWindow.webContents.once('did-finish-load', () => {
+    setLogSender((message: string) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('debug-log', message);
+      }
+    });
+  });
 }
 
 app.whenReady().then(() => {
+  debugLog('App ready, creating window');
   createWindow();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
+      debugLog('App activated, creating new window');
       createWindow();
     }
   });
@@ -67,37 +97,52 @@ app.on('window-all-closed', () => {
 // IPC Handlers
 
 ipcMain.handle('check-permissions', async () => {
-  return await checkAllPermissions();
+  debugLog('IPC: check-permissions called');
+  const permissions = await checkAllPermissions();
+  debugLog('Permissions result:', permissions);
+  return permissions;
 });
 
 ipcMain.handle('request-permissions', async () => {
+  debugLog('IPC: request-permissions called');
   await requestMissingPermissions();
+  debugLog('Request permissions completed');
 });
 
 ipcMain.handle('start-recording', async (_, config: RecordingConfig) => {
+  debugLog('IPC: start-recording called with config:', config);
   if (recordingState.isRecording) {
+    debugLog('ERROR: Recording already in progress');
     throw new Error('Recording is already in progress');
   }
 
   // Check permissions first
+  debugLog('Checking permissions...');
   const permissions = await checkAllPermissions();
+  debugLog('Permissions check result:', permissions);
   if (!permissions.screenRecording || !permissions.accessibility) {
+    debugLog('ERROR: Required permissions not granted');
     throw new Error('Required permissions not granted');
   }
 
   // Initialize components
+  debugLog('Initializing screen capture and mouse tracker');
   screenCapture = new ScreenCapture();
   mouseTracker = new MouseTracker();
 
   // Generate temp file paths
   const tempDir = join(app.getPath('temp'), 'screen-recorder');
+  debugLog('Temp directory:', tempDir);
   if (!existsSync(tempDir)) {
+    debugLog('Creating temp directory');
     mkdirSync(tempDir, { recursive: true });
   }
 
   const timestamp = Date.now();
-  const tempVideoPath = join(tempDir, `recording_${timestamp}.mp4`);
+  const tempVideoPath = join(tempDir, `recording_${timestamp}.mkv`);
   const tempMouseDataPath = join(tempDir, `mouse_${timestamp}.json`);
+  debugLog('Temp video path:', tempVideoPath);
+  debugLog('Temp mouse data path:', tempMouseDataPath);
 
   recordingState = {
     isRecording: true,
@@ -109,16 +154,21 @@ ipcMain.handle('start-recording', async (_, config: RecordingConfig) => {
 
   try {
     // Start mouse tracking
+    debugLog('Starting mouse tracking...');
     await mouseTracker.startTracking();
+    debugLog('Mouse tracking started');
 
     // Start screen recording
+    debugLog('Starting screen recording...');
     await screenCapture.startRecording({
       ...config,
       outputPath: tempVideoPath,
     });
+    debugLog('Screen recording started successfully');
 
     return { success: true };
   } catch (error) {
+    debugLog('ERROR starting recording:', error);
     recordingState.isRecording = false;
     mouseTracker?.stopTracking();
     throw error;
@@ -126,34 +176,46 @@ ipcMain.handle('start-recording', async (_, config: RecordingConfig) => {
 });
 
 ipcMain.handle('stop-recording', async (_, cursorConfig: CursorConfig) => {
+  debugLog('IPC: stop-recording called with cursor config:', cursorConfig);
+  
   if (!recordingState.isRecording) {
+    debugLog('ERROR: No recording in progress');
     throw new Error('No recording in progress');
   }
 
   try {
     // Stop screen recording
+    debugLog('Stopping screen recording...');
     const videoPath = await screenCapture?.stopRecording();
+    debugLog('Screen recording stopped, video path:', videoPath);
     if (!videoPath) {
       throw new Error('Failed to stop recording');
     }
 
     // Stop mouse tracking
+    debugLog('Stopping mouse tracking...');
     mouseTracker?.stopTracking();
+    debugLog('Mouse tracking stopped');
 
     // Save mouse data
     if (mouseTracker && recordingState.tempMouseDataPath) {
+      debugLog('Saving mouse data to:', recordingState.tempMouseDataPath);
       mouseTracker.saveToFile(recordingState.tempMouseDataPath);
     }
 
     // Get mouse events
     const mouseEvents = mouseTracker?.getEvents() || [];
+    debugLog('Mouse events count:', mouseEvents.length);
     const recordingDuration = Date.now() - (recordingState.startTime || 0);
+    debugLog('Recording duration:', recordingDuration, 'ms');
 
     // Process video with cursor overlay
+    debugLog('Processing video with cursor overlay...');
     const processor = new VideoProcessor();
     const finalOutputPath =
       recordingState.outputPath ||
       join(app.getPath('downloads'), `recording_${Date.now()}.mp4`);
+    debugLog('Final output path:', finalOutputPath);
 
     await processor.processVideo({
       inputVideo: videoPath,
@@ -171,11 +233,13 @@ ipcMain.handle('stop-recording', async (_, cursorConfig: CursorConfig) => {
       isRecording: false,
     };
 
+    debugLog('Recording processing completed successfully');
     return {
       success: true,
       outputPath: finalOutputPath,
     };
   } catch (error) {
+    debugLog('ERROR processing recording:', error);
     recordingState.isRecording = false;
     throw error;
   }

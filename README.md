@@ -13,19 +13,19 @@ A macOS screen recording application built with Electron that records your scree
 
 ```bash
 # Install dependencies
-pnpm install
+npm install
 
 # Run in development mode
-pnpm dev
+npm run dev
 
 # Build
-pnpm build
+npm run build
 
 # Start built app
-pnpm start
+npm run start
 
 # Package for macOS
-pnpm package:mac
+npm run package:mac
 ```
 
 ## Permissions

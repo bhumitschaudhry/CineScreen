@@ -13,8 +13,8 @@
     "build:preload": "tsc --project tsconfig.preload.json",
     "build:renderer": "vite build",
     "start": "electron .",
-    "package": "electron-builder",
-    "package:mac": "electron-builder --mac"
+    "package": "rm -rf release && electron-builder",
+    "package:mac": "rm -rf release && electron-builder --mac"
   },
   "keywords": [
     "screen-recording",

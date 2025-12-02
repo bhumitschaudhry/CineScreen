@@ -205,3 +205,91 @@ h2 {
   white-space: nowrap;
 }
 
+/* Debug Log Section */
+.debug-section {
+  margin-bottom: 30px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.debug-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.debug-header h2 {
+  margin-bottom: 0;
+  font-size: 18px;
+}
+
+.debug-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-small {
+  padding: 6px 12px;
+  font-size: 11px;
+  flex: none;
+}
+
+.debug-log-container {
+  max-height: 300px;
+  overflow-y: auto;
+  background: #1e1e1e;
+  border-radius: 6px;
+  padding: 12px;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.debug-log-content {
+  color: #d4d4d4;
+}
+
+.debug-log-entry {
+  margin-bottom: 4px;
+  padding: 2px 0;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.debug-log-entry:last-child {
+  margin-bottom: 0;
+}
+
+.debug-log-entry.error {
+  color: #f48771;
+}
+
+.debug-log-entry.warning {
+  color: #dcdcaa;
+}
+
+.debug-log-entry.info {
+  color: #4ec9b0;
+}
+
+/* Scrollbar styling for debug log */
+.debug-log-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.debug-log-container::-webkit-scrollbar-track {
+  background: #2d2d2d;
+  border-radius: 4px;
+}
+
+.debug-log-container::-webkit-scrollbar-thumb {
+  background: #555;
+  border-radius: 4px;
+}
+
+.debug-log-container::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+

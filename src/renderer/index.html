@@ -76,6 +76,19 @@
         </div>
       </div>
     </div>
+
+    <div class="debug-section" id="debug-section">
+      <div class="debug-header">
+        <h2>Debug Logs</h2>
+        <div class="debug-controls">
+          <button id="toggle-debug-btn" class="btn btn-small">Show Logs</button>
+          <button id="clear-debug-btn" class="btn btn-small">Clear</button>
+        </div>
+      </div>
+      <div class="debug-log-container" id="debug-log-container" style="display: none;">
+        <div class="debug-log-content" id="debug-log-content"></div>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="/renderer.ts"></script>

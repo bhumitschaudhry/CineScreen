@@ -18,6 +18,8 @@ declare global {
         outputPath?: string;
       }>;
       selectOutputPath: () => Promise<string | null>;
+      onDebugLog: (callback: (message: string) => void) => void;
+      removeDebugLogListener: () => void;
     };
   }
 }
@@ -37,9 +39,15 @@ const smoothingSlider = document.getElementById('smoothing') as HTMLInputElement
 const smoothingValue = document.getElementById('smoothing-value') as HTMLSpanElement;
 const outputPathInput = document.getElementById('output-path') as HTMLInputElement;
 const selectPathBtn = document.getElementById('select-path-btn') as HTMLButtonElement;
+const toggleDebugBtn = document.getElementById('toggle-debug-btn') as HTMLButtonElement;
+const clearDebugBtn = document.getElementById('clear-debug-btn') as HTMLButtonElement;
+const debugLogContainer = document.getElementById('debug-log-container') as HTMLDivElement;
+const debugLogContent = document.getElementById('debug-log-content') as HTMLDivElement;
 
 let isRecording = false;
 let outputPath: string | null = null;
+let debugLogsVisible = false;
+const maxLogEntries = 500; // Limit log entries to prevent memory issues
 
 // Initialize
 async function init() {
@@ -206,6 +214,62 @@ selectPathBtn.addEventListener('click', async () => {
     outputPath = path;
     outputPathInput.value = path;
   }
+});
+
+// Debug log functionality
+function addDebugLog(message: string) {
+  const entry = document.createElement('div');
+  entry.className = 'debug-log-entry';
+  
+  // Determine log level based on message content
+  if (message.toLowerCase().includes('error')) {
+    entry.classList.add('error');
+  } else if (message.toLowerCase().includes('warning') || message.toLowerCase().includes('warn')) {
+    entry.classList.add('warning');
+  } else {
+    entry.classList.add('info');
+  }
+  
+  const timestamp = new Date().toLocaleTimeString();
+  entry.textContent = `[${timestamp}] ${message}`;
+  
+  debugLogContent.appendChild(entry);
+  
+  // Limit number of log entries
+  const entries = debugLogContent.children;
+  if (entries.length > maxLogEntries) {
+    debugLogContent.removeChild(entries[0]);
+  }
+  
+  // Auto-scroll to bottom
+  if (debugLogsVisible) {
+    debugLogContainer.scrollTop = debugLogContainer.scrollHeight;
+  }
+}
+
+// Toggle debug log visibility
+toggleDebugBtn.addEventListener('click', () => {
+  debugLogsVisible = !debugLogsVisible;
+  debugLogContainer.style.display = debugLogsVisible ? 'block' : 'none';
+  toggleDebugBtn.textContent = debugLogsVisible ? 'Hide Logs' : 'Show Logs';
+  
+  // Scroll to bottom when showing
+  if (debugLogsVisible) {
+    setTimeout(() => {
+      debugLogContainer.scrollTop = debugLogContainer.scrollHeight;
+    }, 100);
+  }
+});
+
+// Clear debug logs
+clearDebugBtn.addEventListener('click', () => {
+  debugLogContent.innerHTML = '';
+  addDebugLog('Debug logs cleared');
+});
+
+// Set up debug log listener
+window.electronAPI.onDebugLog((message: string) => {
+  addDebugLog(message);
 });
 
 // Initialize on load

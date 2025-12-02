@@ -21,5 +21,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   selectOutputPath: (): Promise<string | null> =>
     ipcRenderer.invoke('select-output-path'),
+
+  onDebugLog: (callback: (message: string) => void) => {
+    ipcRenderer.on('debug-log', (_event, message: string) => callback(message));
+  },
+
+  removeDebugLogListener: () => {
+    ipcRenderer.removeAllListeners('debug-log');
+  },
 });
 
