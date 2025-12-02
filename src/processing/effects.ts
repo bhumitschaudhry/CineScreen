@@ -1,60 +1,5 @@
 import type { MouseEvent } from '../types';
-import {
-  DEFAULT_TIME_DIFF_MS,
-  ADAPTIVE_SMOOTHING_SPEED_THRESHOLD,
-  ADAPTIVE_SMOOTHING_FACTOR,
-  DUPLICATE_POSITION_THRESHOLD,
-} from '../utils/constants';
 
-/**
- * Apply smoothing to mouse movement events using exponential moving average
- * Improved with velocity-based adaptive smoothing
- */
-export function smoothMouseMovement(
-  events: MouseEvent[],
-  smoothingFactor: number
-): MouseEvent[] {
-  if (events.length === 0 || smoothingFactor === 0) {
-    return events;
-  }
-
-  const smoothed: MouseEvent[] = [];
-  let lastX = events[0].x;
-  let lastY = events[0].y;
-  let lastVelocity = { x: 0, y: 0 };
-
-  for (let i = 0; i < events.length; i++) {
-    const event = events[i];
-    
-    // Calculate velocity
-    const timeDiff = i > 0 ? event.timestamp - events[i - 1].timestamp : DEFAULT_TIME_DIFF_MS;
-    const velocity = {
-      x: timeDiff > 0 ? (event.x - lastX) / timeDiff : 0,
-      y: timeDiff > 0 ? (event.y - lastY) / timeDiff : 0,
-    };
-
-    // Adaptive smoothing: less smoothing for fast movements
-    const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
-    const adaptiveFactor = Math.min(1, speed / ADAPTIVE_SMOOTHING_SPEED_THRESHOLD);
-    const effectiveSmoothing = smoothingFactor * (1 - adaptiveFactor * ADAPTIVE_SMOOTHING_FACTOR);
-
-    // Exponential moving average with velocity consideration
-    const smoothedX = lastX + (event.x - lastX) * (1 - effectiveSmoothing);
-    const smoothedY = lastY + (event.y - lastY) * (1 - effectiveSmoothing);
-
-    smoothed.push({
-      ...event,
-      x: smoothedX,
-      y: smoothedY,
-    });
-
-    lastX = smoothedX;
-    lastY = smoothedY;
-    lastVelocity = velocity;
-  }
-
-  return smoothed;
-}
 
 /**
  * Cubic interpolation using Catmull-Rom spline for smoother curves
@@ -147,34 +92,6 @@ export function interpolateMousePositions(
   return interpolated;
 }
 
-/**
- * Filter out duplicate positions (within threshold)
- */
-export function removeDuplicatePositions(
-  events: MouseEvent[],
-  threshold: number = DUPLICATE_POSITION_THRESHOLD
-): MouseEvent[] {
-  if (events.length === 0) {
-    return events;
-  }
-
-  const filtered: MouseEvent[] = [events[0]];
-
-  for (let i = 1; i < events.length; i++) {
-    const prev = filtered[filtered.length - 1];
-    const curr = events[i];
-
-    const distance = Math.sqrt(
-      Math.pow(curr.x - prev.x, 2) + Math.pow(curr.y - prev.y, 2)
-    );
-
-    if (distance > threshold) {
-      filtered.push(curr);
-    }
-  }
-
-  return filtered;
-}
 
 /**
  * Easing function for smooth transitions (ease-in-out)

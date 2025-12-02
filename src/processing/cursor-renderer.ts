@@ -1,4 +1,4 @@
-import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import type { CursorConfig } from '../types';
 import { createLogger } from '../utils/logger';
@@ -245,55 +245,6 @@ export function generateCursorSVG(config: CursorConfig | undefined): string {
 }
 
 /**
- * Generate multi-layer cursor with effects
- */
-export function generateMultiLayerCursor(
-  config: CursorConfig,
-  effects?: { highlight?: boolean; shadow?: boolean }
-): string {
-  const baseCursor = generateCursorSVG(config);
-  const { size, color = '#000000' } = config;
-  const scale = size / 20;
-
-  let layers = baseCursor;
-
-  // Add shadow layer if enabled
-  if (effects?.shadow) {
-    const shadowOffset = 2 * scale;
-    const shadow = generateArrowCursor(size, '#000000');
-    // Wrap in group with offset for shadow
-    layers = `
-      <g>
-        <g transform="translate(${shadowOffset},${shadowOffset})" opacity="0.3">
-          ${shadow}
-        </g>
-        ${baseCursor}
-      </g>
-    `;
-  }
-
-  // Add highlight ring if enabled
-  if (effects?.highlight) {
-    const ringSize = size * 1.2;
-    const ring = `
-      <circle cx="${size / 2}" cy="${size / 2}" r="${ringSize / 2}" 
-              fill="none" 
-              stroke="${color}" 
-              stroke-width="${2 * scale}" 
-              opacity="0.5"/>
-    `;
-    layers = `
-      <g>
-        ${ring}
-        ${baseCursor}
-      </g>
-    `;
-  }
-
-  return layers.trim();
-}
-
-/**
  * Generate arrow cursor SVG
  */
 function generateArrowCursor(size: number, color: string): string {
@@ -371,17 +322,6 @@ function generateCrosshairCursor(size: number, color: string): string {
 }
 
 /**
- * Save cursor SVG to file
- */
-export function saveCursorToFile(filePath: string, svg: string): void {
-  const dir = join(filePath, '..');
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-  writeFileSync(filePath, svg);
-}
-
-/**
  * Get cursor asset file path (for direct file access if needed)
  */
 export function getCursorAssetFilePath(shape: string): string | null {
@@ -422,39 +362,4 @@ export function getCursorAssetFilePath(shape: string): string | null {
   return null;
 }
 
-/**
- * Convert SVG to PNG using a simple approach
- * Note: In production, you'd use a library like sharp or canvas
- */
-export async function convertSVGToPNG(
-  svgPath: string,
-  pngPath: string,
-  size: number
-): Promise<void> {
-  // For now, we'll use a shell command with rsvg-convert or similar
-  // In a real implementation, you'd use a Node.js library
-  const { exec } = require('child_process');
-  const { promisify } = require('util');
-  const execAsync = promisify(exec);
-
-  try {
-    // Try using rsvg-convert if available
-    await execAsync(
-      `rsvg-convert -w ${size} -h ${size} "${svgPath}" -o "${pngPath}"`
-    );
-  } catch (error) {
-    // Fallback: use ImageMagick or other tool
-    try {
-      await execAsync(
-        `convert -background none -resize ${size}x${size} "${svgPath}" "${pngPath}"`
-      );
-    } catch (error2) {
-      // If neither is available, we'll need to handle this in video processing
-      // For now, just copy the SVG (FFmpeg can handle SVG with libvips)
-      throw new Error(
-        'No SVG to PNG converter available. Please install rsvg-convert or ImageMagick.'
-      );
-    }
-  }
-}
 

@@ -8,8 +8,6 @@ import { getCursorAssetFilePath } from './cursor-renderer';
 import { getFfmpegPath } from '../utils/ffmpeg-path';
 import { getVideoDimensions, getScreenDimensions } from './video-utils';
 import { createLogger } from '../utils/logger';
-import { easeInOut, easeIn, easeOut } from './effects';
-import type { EasingType } from '../types/metadata';
 import {
   VIDEO_ENCODING_CRF,
   FRAME_BATCH_SIZE,
@@ -475,108 +473,4 @@ export class VideoProcessor {
     }
   }
 
-  /**
-   * Interpolate cursor position from keyframes
-   */
-  private interpolateCursorKeyframe(
-    keyframes: CursorKeyframe[],
-    timestamp: number
-  ): { x: number; y: number } | null {
-    if (keyframes.length === 0) return null;
-    if (keyframes.length === 1) {
-      return { x: keyframes[0].x, y: keyframes[0].y };
-    }
-
-    // Find bracketing keyframes
-    let prev: CursorKeyframe | null = null;
-    let next: CursorKeyframe | null = null;
-
-    for (let i = 0; i < keyframes.length; i++) {
-      if (keyframes[i].timestamp <= timestamp) {
-        prev = keyframes[i];
-        next = keyframes[i + 1] || keyframes[i];
-      } else {
-        if (!prev) {
-          prev = keyframes[0];
-          next = keyframes[0];
-        } else {
-          next = keyframes[i];
-        }
-        break;
-      }
-    }
-
-    if (!prev || !next) return null;
-    if (prev.timestamp === next.timestamp) {
-      return { x: prev.x, y: prev.y };
-    }
-
-    const timeDiff = next.timestamp - prev.timestamp;
-    const t = timeDiff > 0 ? (timestamp - prev.timestamp) / timeDiff : 0;
-    
-    // Apply easing based on keyframe easing type
-    const easingType: EasingType = prev.easing || 'easeInOut';
-    let easedT: number;
-    switch (easingType) {
-      case 'linear':
-        easedT = t;
-        break;
-      case 'easeIn':
-        easedT = easeIn(t);
-        break;
-      case 'easeOut':
-        easedT = easeOut(t);
-        break;
-      case 'easeInOut':
-      default:
-        easedT = easeInOut(t);
-        break;
-    }
-
-    return {
-      x: prev.x + (next.x - prev.x) * easedT,
-      y: prev.y + (next.y - prev.y) * easedT,
-    };
-  }
-
-  /**
-   * Simple video copy without effects (for fallback)
-   * Uses captured video dimensions without scaling
-   */
-  async copyVideoWithScale(inputVideo: string, outputVideo: string): Promise<void> {
-    const ffmpegPath = getFfmpegPath();
-    
-    // Copy video without scaling - use captured dimensions
-    const args = [
-      '-i', inputVideo,
-      '-c:v', 'libx264',
-      '-preset', 'fast',
-      '-crf', String(VIDEO_ENCODING_CRF),
-      '-pix_fmt', 'yuv420p',
-      '-movflags', 'faststart',
-      '-y',
-      outputVideo
-    ];
-
-    return new Promise((resolve, reject) => {
-      const process = spawn(ffmpegPath, args);
-      let errorOutput = '';
-
-      process.stderr?.on('data', (data) => {
-        errorOutput += data.toString();
-      });
-
-      process.on('close', (code) => {
-        if (code === 0 && existsSync(outputVideo)) {
-          resolve();
-        } else {
-          reject(new Error(`Video copy failed: ${errorOutput.substring(0, 500)}`));
-        }
-      });
-
-      process.on('error', (error) => {
-        reject(new Error(`Failed to start FFmpeg: ${error.message}`));
-      });
-    });
-  }
   }
