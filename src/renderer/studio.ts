@@ -10,7 +10,7 @@ import { createLogger } from '../utils/logger';
 
 const logger = createLogger('Studio');
 
-// Type assertion for electronAPI - methods are available in studio context
+// Type definition for electronAPI - methods are available in studio context
 type StudioElectronAPI = {
   loadMetadata: (metadataPath: string) => Promise<RecordingMetadata>;
   getVideoInfo: (videoPath: string) => Promise<{
@@ -23,6 +23,17 @@ type StudioElectronAPI = {
   onProcessingProgress: (callback: (data: { percent: number; message: string }) => void) => void;
   removeProcessingProgressListener: () => void;
 };
+
+// Extend Window interface to include electronAPI
+declare global {
+  interface Window {
+    electronAPI?: StudioElectronAPI;
+    __studioInitData?: {
+      videoPath: string;
+      metadataPath: string;
+    };
+  }
+}
 
 // State
 let metadata: RecordingMetadata | null = null;
@@ -81,19 +92,13 @@ async function init() {
     // Set up metadata update callbacks
     cursorEditor.setOnMetadataUpdate((updatedMetadata) => {
       metadata = updatedMetadata;
-      if (timeline && updatedMetadata) {
-        // Use metadata duration as source of truth (in milliseconds)
-        timeline.setMetadata(updatedMetadata, updatedMetadata.video.duration);
-      }
+      updateTimelineDuration();
       keyframePanel?.setMetadata(updatedMetadata);
     });
 
     zoomEditor.setOnMetadataUpdate((updatedMetadata) => {
       metadata = updatedMetadata;
-      if (timeline && updatedMetadata) {
-        // Use metadata duration as source of truth (in milliseconds)
-        timeline.setMetadata(updatedMetadata, updatedMetadata.video.duration);
-      }
+      updateTimelineDuration();
       keyframePanel?.setMetadata(updatedMetadata);
     });
 
@@ -197,7 +202,7 @@ async function loadStudioData() {
     logger.info('Loading metadata from:', metadataPath);
 
     // Load metadata
-    const api = window.electronAPI as any as StudioElectronAPI;
+    const api = window.electronAPI;
     if (!api || !api.loadMetadata) {
       throw new Error('electronAPI.loadMetadata not available');
     }
@@ -217,15 +222,37 @@ async function loadStudioData() {
     logger.info('Loading video from:', videoSrc);
     videoEl.src = videoSrc;
 
-    // Wait for video metadata
+    // Wait for video metadata and ensure duration is available
     await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error('Video load timeout'));
       }, 10000);
 
+      const checkDuration = () => {
+        // Check if duration is valid (not NaN, not 0, is finite)
+        if (videoEl.duration && isFinite(videoEl.duration) && videoEl.duration > 0) {
+          clearTimeout(timeout);
+          resolve(undefined);
+          return true;
+        }
+        return false;
+      };
+
+      // Try to get duration from loadedmetadata
       videoEl.addEventListener('loadedmetadata', () => {
-        clearTimeout(timeout);
-        resolve(undefined);
+        if (checkDuration()) return;
+        // If duration not available yet, wait for loadeddata
+        videoEl.addEventListener('loadeddata', () => {
+          if (checkDuration()) return;
+          // If still not available, wait a bit more and check again
+          setTimeout(() => {
+            if (!checkDuration()) {
+              logger.warn('Video duration not available after load, using metadata duration as fallback');
+              clearTimeout(timeout);
+              resolve(undefined);
+            }
+          }, 500);
+        }, { once: true });
       }, { once: true });
 
       videoEl.addEventListener('error', (e) => {
@@ -245,10 +272,20 @@ async function loadStudioData() {
     }
 
     // Update timeline with metadata
-    // Use metadata duration as source of truth (already in milliseconds)
-    if (timeline && metadata) {
-      timeline.setMetadata(metadata, metadata.video.duration);
+    // Use actual video element duration as source of truth (convert from seconds to milliseconds)
+    // This ensures the timeline matches the actual video length, not the metadata duration
+    // Validate duration is valid before using it
+    let actualVideoDurationMs: number;
+    if (videoEl.duration && isFinite(videoEl.duration) && videoEl.duration > 0) {
+      actualVideoDurationMs = videoEl.duration * 1000;
+      logger.info('Using video element duration:', actualVideoDurationMs, 'ms');
+    } else {
+      // Fallback to metadata duration if video element duration is invalid
+      actualVideoDurationMs = metadata?.video.duration || 0;
+      logger.warn('Video element duration invalid, using metadata duration:', actualVideoDurationMs, 'ms');
     }
+    
+    updateTimelineDuration();
 
     // Update editors and panel
     if (metadata) {
@@ -469,13 +506,36 @@ function setupEventListeners() {
   });
 }
 
+/**
+ * Get actual video duration in milliseconds
+ */
+function getActualVideoDuration(): number {
+  if (!videoPreview) return 0;
+  const videoEl = videoPreview.getVideoElement();
+  if (!videoEl || !videoEl.duration || !isFinite(videoEl.duration) || videoEl.duration <= 0) {
+    return 0;
+  }
+  return videoEl.duration * 1000; // Convert to milliseconds
+}
+
+/**
+ * Update timeline with actual video duration
+ */
+function updateTimelineDuration() {
+  if (!timeline || !metadata) return;
+  const actualDuration = getActualVideoDuration();
+  if (actualDuration > 0) {
+    timeline.setMetadata(metadata, actualDuration);
+  }
+}
+
 function updateTimeDisplay() {
   const timeDisplay = document.getElementById('time-display');
   if (!timeDisplay || !videoPreview || !metadata) return;
 
   const current = formatTime(currentTime / 1000);
-  // Use metadata duration as source of truth (convert from ms to seconds)
-  const total = formatTime(metadata.video.duration / 1000);
+  const actualDuration = getActualVideoDuration() / 1000; // Convert to seconds
+  const total = formatTime(actualDuration);
   timeDisplay.textContent = `${current} / ${total}`;
 }
 
@@ -561,8 +621,9 @@ function renderPreview() {
   // Get current time directly from video element for accurate synchronization
   // Convert from seconds to milliseconds
   const videoCurrentTime = videoEl.currentTime * 1000;
-  const videoDuration = metadata.video.duration;
-  const clampedTime = Math.min(videoCurrentTime, videoDuration);
+  // Use actual video element duration
+  const videoDuration = getActualVideoDuration();
+  const clampedTime = Math.min(videoCurrentTime, videoDuration || Infinity);
   
   // Update currentTime for display purposes
   currentTime = clampedTime;
@@ -656,7 +717,7 @@ function stopAnimationFrameLoop() {
 }
 
 function setupExportProgressListener() {
-  const api = window.electronAPI as any as StudioElectronAPI;
+  const api = window.electronAPI;
   if (!api || !api.onProcessingProgress) {
     logger.warn('onProcessingProgress not available');
     return;
@@ -705,7 +766,7 @@ async function exportVideo() {
     showExportProgress();
     updateExportProgress(0, 'Starting export...');
 
-    const api = window.electronAPI as any as StudioElectronAPI;
+    const api = window.electronAPI;
     if (!api || !api.exportVideo) {
       throw new Error('electronAPI.exportVideo not available');
     }
@@ -753,19 +814,14 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
     return; // No actual clicks
   }
 
-  // Normalize click timestamps to start from 0 (relative to video start)
-  // This ensures clicks align with video playback, which always starts at timestamp 0
-  // Find the earliest click timestamp and subtract it from all clicks
-  const earliestClickTime = Math.min(...clickDownEvents.map(c => c.timestamp));
-  const normalizedClicks = clickDownEvents.map(c => ({
-    ...c,
-    timestamp: Math.max(0, c.timestamp - earliestClickTime) // Ensure no negative timestamps
-  }));
+  // Use original click timestamps without normalization
+  // This preserves the original timing relative to the video
+  const clicks = clickDownEvents;
 
   // Check if we should auto-create keyframes
   // Only create if there are significantly more clicks than keyframes
   const existingKeyframes = metadata.cursor.keyframes.length;
-  const clickCount = clickDownEvents.length;
+  const clickCount = clicks.length;
   
   // Early exit: if we already have enough keyframes, skip
   // We expect 2 keyframes per click (before + at click), so check for that
@@ -779,9 +835,6 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
   if (existingKeyframes < clickCount / 2) {
     const startTime = performance.now();
     logger.info(`Auto-creating cursor keyframes from ${clickCount} clicks (existing: ${existingKeyframes})`);
-    if (earliestClickTime > 0) {
-      logger.debug(`Normalizing click timestamps: earliest was ${earliestClickTime}ms, now starts at 0`);
-    }
     
     // Get initial cursor position (first keyframe or first click position)
     let initialX = 0;
@@ -791,9 +844,9 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
     if (hasExistingKeyframes) {
       initialX = metadata.cursor.keyframes[0].x;
       initialY = metadata.cursor.keyframes[0].y;
-    } else if (normalizedClicks.length > 0) {
-      initialX = normalizedClicks[0].x;
-      initialY = normalizedClicks[0].y;
+    } else if (clicks.length > 0) {
+      initialX = clicks[0].x;
+      initialY = clicks[0].y;
     }
 
     // Clear existing keyframes if we're auto-creating from scratch
@@ -820,8 +873,8 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
     const newKeyframes: CursorKeyframe[] = [];
 
     // Add keyframes for each click - create two keyframes per click
-    for (let i = 0; i < normalizedClicks.length; i++) {
-      const click = normalizedClicks[i];
+    for (let i = 0; i < clicks.length; i++) {
+      const click = clicks[i];
       
       // Keyframe 1: 7 frames before the click, at previous click's position
       const beforeTimestamp = Math.max(0, click.timestamp - frameDurationMs);
@@ -884,16 +937,16 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
     metadata.cursor.keyframes = deduplicated;
 
     // Ensure there's a final keyframe at the end of the video
-    const videoDuration = metadata.video.duration;
+    const actualVideoDuration = getActualVideoDuration() || metadata.video.duration;
     const lastKeyframe = metadata.cursor.keyframes[metadata.cursor.keyframes.length - 1];
     
-    if (!lastKeyframe || lastKeyframe.timestamp < videoDuration - 100) {
+    if (!lastKeyframe || lastKeyframe.timestamp < actualVideoDuration - 100) {
       // Add final keyframe at the last click position or last keyframe position
-      const finalX = lastKeyframe?.x || normalizedClicks[normalizedClicks.length - 1]?.x || initialX;
-      const finalY = lastKeyframe?.y || normalizedClicks[normalizedClicks.length - 1]?.y || initialY;
+      const finalX = lastKeyframe?.x || clicks[clicks.length - 1]?.x || initialX;
+      const finalY = lastKeyframe?.y || clicks[clicks.length - 1]?.y || initialY;
       
       metadata.cursor.keyframes.push({
-        timestamp: videoDuration,
+        timestamp: actualVideoDuration,
         x: finalX,
         y: finalY,
       });
@@ -1040,10 +1093,10 @@ function autoCreateZoomKeyframesFromClicks(metadata: RecordingMetadata) {
   metadata.zoom.keyframes = deduplicated;
 
   // Ensure there's a final zoom keyframe at the end of the video
-  const videoDuration = metadata.video.duration;
+  const actualVideoDuration = getActualVideoDuration() || metadata.video.duration;
   const lastZoomKeyframe = metadata.zoom.keyframes[metadata.zoom.keyframes.length - 1];
   
-  if (!lastZoomKeyframe || lastZoomKeyframe.timestamp < videoDuration - 100) {
+  if (!lastZoomKeyframe || lastZoomKeyframe.timestamp < actualVideoDuration - 100) {
     // Add final zoom keyframe - zoom out to default if last click was zoomed in
     const finalZoomLevel = lastZoomKeyframe?.level || 1.0;
     const finalCropWidth = videoWidth / finalZoomLevel;
@@ -1052,7 +1105,7 @@ function autoCreateZoomKeyframesFromClicks(metadata: RecordingMetadata) {
     const finalCenterY = lastZoomKeyframe?.centerY || videoHeight / 2;
     
     metadata.zoom.keyframes.push({
-      timestamp: videoDuration,
+      timestamp: actualVideoDuration,
       centerX: finalCenterX,
       centerY: finalCenterY,
       level: finalZoomLevel,

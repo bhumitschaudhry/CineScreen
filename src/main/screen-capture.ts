@@ -171,8 +171,9 @@ export class ScreenCapture {
       logger.debug('Spawning FFmpeg process with path:', resolvedFfmpegPath);
       logger.debug('Command:', resolvedFfmpegPath, args.join(' '));
       
+      // Enable stdin so we can send 'q' to gracefully quit FFmpeg
       this.recordingProcess = spawn(resolvedFfmpegPath, args, {
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe']
       });
 
       logger.debug('FFmpeg process spawned, PID:', this.recordingProcess.pid);
@@ -253,14 +254,17 @@ export class ScreenCapture {
           logger.info(`Recording stopped (graceful: ${isGraceful}, killed: ${wasKilled}), waiting for file to be finalized...`);
           
           try {
-            // Give FFmpeg a moment to flush buffers to disk (longer if killed)
-            // Wait 2-5 seconds for buffers to flush after close event
-            await new Promise(resolve => setTimeout(resolve, wasKilled ? 5000 : 2000));
+            // Give FFmpeg more time to flush buffers to disk
+            // Increased wait time to ensure all frames are written, especially for graceful shutdowns
+            // Wait 3-6 seconds for buffers to flush after close event
+            const flushWaitTime = wasKilled ? 6000 : 3000;
+            logger.debug(`Waiting ${flushWaitTime}ms for FFmpeg to flush buffers...`);
+            await new Promise(resolve => setTimeout(resolve, flushWaitTime));
             
             // Wait for file to stabilize (FFmpeg might still be writing)
-            // Wait up to 10 seconds for file to stabilize
-            // MKV format is more forgiving, but we still want to ensure it's finalized
-            await waitForFileStable(outputPath, wasKilled ? 10000 : 5000, 100);
+            // Increased wait time to ensure all frames are written
+            // Wait up to 15 seconds for file to stabilize
+            await waitForFileStable(outputPath, wasKilled ? 15000 : 10000, 100);
             logger.debug('File size stabilized, validating video file...');
             
             // Validate the video file is complete with retries
@@ -346,46 +350,80 @@ export class ScreenCapture {
         return;
       }
 
-      // Use SIGINT as the primary shutdown mechanism
-      // SIGINT (Ctrl+C) is reliable for non-interactive processes
-      try {
-        process.kill('SIGINT');
-        logger.debug('Sent SIGINT to FFmpeg, PID:', process.pid);
-      } catch (error) {
-        logger.warn('Could not send SIGINT:', error);
-        // If we can't send SIGINT, try SIGTERM
+      // Try to gracefully quit FFmpeg by sending 'q' to stdin first
+      // This allows FFmpeg to flush all buffered frames before stopping
+      if (process.stdin && !process.stdin.destroyed) {
         try {
-          process.kill('SIGTERM');
-          logger.debug('Sent SIGTERM to FFmpeg as fallback');
-        } catch (termError) {
-          logger.error('Could not send SIGTERM either:', termError);
-          // Last resort: SIGKILL
+          logger.debug('Sending quit command (q) to FFmpeg stdin to gracefully stop...');
+          process.stdin.write('q\n');
+          process.stdin.end();
+          
+          // Give FFmpeg time to process the quit command and flush buffers
+          // Wait up to 3 seconds for graceful shutdown
+          setTimeout(() => {
+            if (process && !process.killed && !isResolved) {
+              logger.warn('FFmpeg did not respond to quit command within 3 seconds, sending SIGINT');
+              try {
+                process.kill('SIGINT');
+                logger.debug('Sent SIGINT to FFmpeg, PID:', process.pid);
+              } catch (error) {
+                logger.warn('Could not send SIGINT:', error);
+                try {
+                  process.kill('SIGTERM');
+                  logger.debug('Sent SIGTERM to FFmpeg as fallback');
+                } catch (termError) {
+                  logger.error('Could not send SIGTERM either:', termError);
+                }
+              }
+            }
+          }, 3000);
+        } catch (error) {
+          logger.warn('Could not write to FFmpeg stdin, using SIGINT:', error);
+          // Fall back to SIGINT if stdin write fails
           try {
-            process.kill('SIGKILL');
-            logger.debug('Sent SIGKILL to FFmpeg as last resort');
-          } catch (killError) {
-            logger.error('Could not kill process:', killError);
-            isResolved = true;
-            reject(new Error('Failed to stop FFmpeg process'));
-            return;
+            process.kill('SIGINT');
+            logger.debug('Sent SIGINT to FFmpeg, PID:', process.pid);
+          } catch (sigintError) {
+            logger.warn('Could not send SIGINT:', sigintError);
+            try {
+              process.kill('SIGTERM');
+              logger.debug('Sent SIGTERM to FFmpeg as fallback');
+            } catch (termError) {
+              logger.error('Could not send SIGTERM either:', termError);
+            }
+          }
+        }
+      } else {
+        // Stdin not available, use SIGINT directly
+        logger.debug('FFmpeg stdin not available, using SIGINT');
+        try {
+          process.kill('SIGINT');
+          logger.debug('Sent SIGINT to FFmpeg, PID:', process.pid);
+        } catch (error) {
+          logger.warn('Could not send SIGINT:', error);
+          try {
+            process.kill('SIGTERM');
+            logger.debug('Sent SIGTERM to FFmpeg as fallback');
+          } catch (termError) {
+            logger.error('Could not send SIGTERM either:', termError);
           }
         }
       }
 
-      // Shorter timeout for initial response (5 seconds)
-      // If FFmpeg doesn't respond to SIGINT within 5 seconds, escalate to SIGTERM
+      // Timeout for escalation: if FFmpeg doesn't respond to quit/SIGINT within 8 seconds, escalate to SIGTERM
+      // This gives time for the 'q' command (3s) + SIGINT (5s) to work
       sigintTimeout = setTimeout(() => {
         if (process && !process.killed && !isResolved) {
-          logger.warn('FFmpeg did not respond to SIGINT within 5 seconds, trying SIGTERM');
+          logger.warn('FFmpeg did not respond to quit/SIGINT within 8 seconds, trying SIGTERM');
           try {
             process.kill('SIGTERM');
           } catch (error) {
             logger.error('Could not send SIGTERM:', error);
           }
         }
-      }, 5000);
+      }, 8000);
 
-      // Final timeout - force kill after 15 seconds total
+      // Final timeout - force kill after 20 seconds total (increased to allow more time for graceful shutdown)
       finalTimeout = setTimeout(() => {
         if (process && !process.killed && !isResolved) {
           logger.warn('Force killing FFmpeg process with SIGKILL (final timeout)');
