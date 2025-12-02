@@ -3,8 +3,6 @@ import { join, dirname } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import type { MouseEvent, CursorConfig, ZoomConfig, MouseEffectsConfig } from '../types';
 import type { RecordingMetadata, CursorKeyframe, ZoomKeyframe, ClickEvent, VideoInfo } from '../types/metadata';
-import type { ZoomRegion } from './zoom-tracker';
-import { generateZoomRegions } from './zoom-tracker';
 import { getVideoDimensions } from './video-utils';
 import { createLogger } from '../utils/logger';
 
@@ -113,62 +111,6 @@ function convertMouseEventsToKeyframes(
   return { cursorKeyframes, clickEvents };
 }
 
-/**
- * Converts zoom regions to zoom keyframes
- * Only stores start (timestamp 0) and end (videoDuration) keyframes
- */
-function convertZoomRegionsToKeyframes(
-  zoomRegions: ZoomRegion[],
-  videoDuration: number
-): ZoomKeyframe[] {
-  const zoomKeyframes: ZoomKeyframe[] = [];
-
-  if (zoomRegions.length === 0) {
-    return zoomKeyframes;
-  }
-
-  // Only store start and end keyframes - all intermediate zoom states are interpolated
-  if (zoomRegions.length > 0) {
-    const firstRegion = zoomRegions[0];
-    const lastRegion = zoomRegions[zoomRegions.length - 1];
-    
-    // Start keyframe at timestamp 0 (beginning of video)
-    zoomKeyframes.push({
-      timestamp: 0,
-      centerX: firstRegion.centerX,
-      centerY: firstRegion.centerY,
-      level: firstRegion.scale,
-      cropWidth: firstRegion.cropWidth,
-      cropHeight: firstRegion.cropHeight,
-      easing: 'easeInOut', // Default easing for the segment
-    });
-    
-    // End keyframe at video duration (end of video)
-    // Only add if zoom changed or we have a valid duration
-    if (videoDuration > 0 && (
-        firstRegion.scale !== lastRegion.scale ||
-        firstRegion.centerX !== lastRegion.centerX ||
-        firstRegion.centerY !== lastRegion.centerY ||
-        videoDuration > firstRegion.timestamp
-      )) {
-      zoomKeyframes.push({
-        timestamp: videoDuration,
-        centerX: lastRegion.centerX,
-        centerY: lastRegion.centerY,
-        level: lastRegion.scale,
-        cropWidth: lastRegion.cropWidth,
-        cropHeight: lastRegion.cropHeight,
-      });
-    }
-  }
-
-  // Sort by timestamp
-  zoomKeyframes.sort((a, b) => a.timestamp - b.timestamp);
-
-  logger.info(`Converted ${zoomRegions.length} zoom regions to ${zoomKeyframes.length} zoom keyframes`);
-
-  return zoomKeyframes;
-}
 
 /**
  * Metadata exporter - converts recording data to metadata format
@@ -256,42 +198,16 @@ export class MetadataExporter {
       convertToVideoCoordinates
     );
 
-    // Generate zoom regions if zoom is enabled
-    let zoomKeyframes: ZoomKeyframe[] = [];
-    if (zoomConfig?.enabled) {
-      // Convert mouse events to video coordinates before generating zoom regions
-      const convertedMouseEvents = mouseEvents.map(event => {
-        const pos = convertToVideoCoordinates(event.x, event.y);
-        return {
-          ...event,
-          x: pos.x,
-          y: pos.y,
-        };
-      });
-      
-      const videoDims = {
-        width: videoDimensions.width,
-        height: videoDimensions.height,
-      };
-      const zoomRegions = generateZoomRegions(
-        convertedMouseEvents,
-        videoDims,
-        zoomConfig,
-        frameRate,
-        videoDuration
-      );
-      zoomKeyframes = convertZoomRegionsToKeyframes(zoomRegions, videoDuration);
-    } else {
-      // Add default no-zoom keyframe
-      zoomKeyframes.push({
-        timestamp: 0,
-        centerX: videoDimensions.width / 2,
-        centerY: videoDimensions.height / 2,
-        level: 1.0,
-        cropWidth: videoDimensions.width,
-        cropHeight: videoDimensions.height,
-      });
-    }
+    // Zoom keyframes will be generated from clicks in the studio editor
+    // Start with default no-zoom keyframe
+    const zoomKeyframes: ZoomKeyframe[] = [{
+      timestamp: 0,
+      centerX: videoDimensions.width / 2,
+      centerY: videoDimensions.height / 2,
+      level: 1.0,
+      cropWidth: videoDimensions.width,
+      cropHeight: videoDimensions.height,
+    }];
 
     // Create metadata object
     const metadata: RecordingMetadata = {
