@@ -2,6 +2,7 @@ import type { MouseEvent } from '../types';
 
 /**
  * Apply smoothing to mouse movement events using exponential moving average
+ * Improved with velocity-based adaptive smoothing
  */
 export function smoothMouseMovement(
   events: MouseEvent[],
@@ -14,11 +15,26 @@ export function smoothMouseMovement(
   const smoothed: MouseEvent[] = [];
   let lastX = events[0].x;
   let lastY = events[0].y;
+  let lastVelocity = { x: 0, y: 0 };
 
-  for (const event of events) {
-    // Exponential moving average
-    const smoothedX = lastX + (event.x - lastX) * (1 - smoothingFactor);
-    const smoothedY = lastY + (event.y - lastY) * (1 - smoothingFactor);
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i];
+    
+    // Calculate velocity
+    const timeDiff = i > 0 ? event.timestamp - events[i - 1].timestamp : 16; // Default 16ms
+    const velocity = {
+      x: timeDiff > 0 ? (event.x - lastX) / timeDiff : 0,
+      y: timeDiff > 0 ? (event.y - lastY) / timeDiff : 0,
+    };
+
+    // Adaptive smoothing: less smoothing for fast movements
+    const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
+    const adaptiveFactor = Math.min(1, speed / 10); // Adjust threshold as needed
+    const effectiveSmoothing = smoothingFactor * (1 - adaptiveFactor * 0.5);
+
+    // Exponential moving average with velocity consideration
+    const smoothedX = lastX + (event.x - lastX) * (1 - effectiveSmoothing);
+    const smoothedY = lastY + (event.y - lastY) * (1 - effectiveSmoothing);
 
     smoothed.push({
       ...event,
@@ -28,13 +44,36 @@ export function smoothMouseMovement(
 
     lastX = smoothedX;
     lastY = smoothedY;
+    lastVelocity = velocity;
   }
 
   return smoothed;
 }
 
 /**
- * Interpolate mouse positions for missing frames
+ * Cubic interpolation using Catmull-Rom spline for smoother curves
+ */
+function cubicInterpolate(
+  p0: number,
+  p1: number,
+  p2: number,
+  p3: number,
+  t: number
+): number {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return (
+    0.5 *
+    (2 * p1 +
+      (-p0 + p2) * t +
+      (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+      (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
+  );
+}
+
+/**
+ * Interpolate mouse positions for missing frames with improved algorithms
+ * Uses cubic interpolation for smoother motion
  */
 export function interpolateMousePositions(
   events: MouseEvent[],
@@ -69,18 +108,33 @@ export function interpolateMousePositions(
         timestamp: targetTime,
       });
     } else {
-      // Interpolate between two events
       const event1 = events[eventIndex];
       const event2 = events[eventIndex + 1];
       const timeDiff = event2.timestamp - event1.timestamp;
       const t = timeDiff > 0 ? (targetTime - event1.timestamp) / timeDiff : 0;
 
-      interpolated.push({
-        timestamp: targetTime,
-        x: event1.x + (event2.x - event1.x) * t,
-        y: event1.y + (event2.y - event1.y) * t,
-        action: event1.action,
-      });
+      // Use cubic interpolation if we have enough points
+      if (eventIndex > 0 && eventIndex < events.length - 2) {
+        const p0 = events[eventIndex - 1];
+        const p1 = event1;
+        const p2 = event2;
+        const p3 = events[eventIndex + 2];
+
+        interpolated.push({
+          timestamp: targetTime,
+          x: cubicInterpolate(p0.x, p1.x, p2.x, p3.x, t),
+          y: cubicInterpolate(p0.y, p1.y, p2.y, p3.y, t),
+          action: event1.action,
+        });
+      } else {
+        // Fall back to linear interpolation at boundaries
+        interpolated.push({
+          timestamp: targetTime,
+          x: event1.x + (event2.x - event1.x) * t,
+          y: event1.y + (event2.y - event1.y) * t,
+          action: event1.action,
+        });
+      }
     }
   }
 
@@ -114,5 +168,34 @@ export function removeDuplicatePositions(
   }
 
   return filtered;
+}
+
+/**
+ * Easing function for smooth transitions (ease-in-out)
+ * @param t Progress from 0 to 1
+ * @returns Eased progress from 0 to 1
+ */
+export function easeInOut(t: number): number {
+  return t < 0.5
+    ? 2 * t * t
+    : 1 - Math.pow(-2 * t + 2, 2) / 2;
+}
+
+/**
+ * Easing function for smooth transitions (ease-out)
+ * @param t Progress from 0 to 1
+ * @returns Eased progress from 0 to 1
+ */
+export function easeOut(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+/**
+ * Easing function for smooth transitions (ease-in)
+ * @param t Progress from 0 to 1
+ * @returns Eased progress from 0 to 1
+ */
+export function easeIn(t: number): number {
+  return t * t * t;
 }
 

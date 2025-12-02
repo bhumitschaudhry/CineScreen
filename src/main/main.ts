@@ -9,7 +9,7 @@ import {
   checkAllPermissions,
   requestMissingPermissions,
 } from './permissions';
-import type { RecordingConfig, CursorConfig, RecordingState } from '../types';
+import type { RecordingConfig, CursorConfig, RecordingState, ZoomConfig, MouseEffectsConfig } from '../types';
 
 // Debug logging helper
 const DEBUG = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
@@ -175,8 +175,13 @@ ipcMain.handle('start-recording', async (_, config: RecordingConfig) => {
   }
 });
 
-ipcMain.handle('stop-recording', async (_, cursorConfig: CursorConfig) => {
-  debugLog('IPC: stop-recording called with cursor config:', cursorConfig);
+ipcMain.handle('stop-recording', async (_, config: {
+  cursorConfig: CursorConfig;
+  zoomConfig?: ZoomConfig;
+  mouseEffectsConfig?: MouseEffectsConfig;
+}) => {
+  const { cursorConfig, zoomConfig, mouseEffectsConfig } = config;
+  debugLog('IPC: stop-recording called with config:', config);
   
   if (!recordingState.isRecording) {
     debugLog('ERROR: No recording in progress');
@@ -222,6 +227,8 @@ ipcMain.handle('stop-recording', async (_, cursorConfig: CursorConfig) => {
       outputVideo: finalOutputPath,
       mouseEvents,
       cursorConfig,
+      zoomConfig,
+      mouseEffectsConfig,
       frameRate: 30,
       videoDuration: recordingDuration,
     });

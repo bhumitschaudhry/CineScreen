@@ -3,6 +3,7 @@ import { join } from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { MouseEvent } from '../types';
+import { getMouseButtonStates } from '../processing/click-detector';
 
 const execAsync = promisify(exec);
 
@@ -12,6 +13,7 @@ export class MouseTracker {
   private startTime: number = 0;
   private trackingInterval?: NodeJS.Timeout;
   private lastPosition = { x: 0, y: 0 };
+  private lastButtonState = { left: false, right: false, middle: false };
 
   /**
    * Get current mouse position using AppleScript
@@ -33,6 +35,7 @@ export class MouseTracker {
     }
   }
 
+
   /**
    * Start tracking mouse movements
    */
@@ -51,8 +54,41 @@ export class MouseTracker {
     this.trackingInterval = setInterval(async () => {
       const position = await this.getMousePosition();
       const timestamp = Date.now() - this.startTime;
+      const buttonStates = await getMouseButtonStates();
 
-      // Only record if position changed
+      // Detect button state changes (clicks)
+      if (buttonStates.left !== this.lastButtonState.left) {
+        this.events.push({
+          timestamp,
+          x: position.x,
+          y: position.y,
+          button: 'left',
+          action: buttonStates.left ? 'down' : 'up',
+        });
+        this.lastButtonState.left = buttonStates.left;
+      }
+      if (buttonStates.right !== this.lastButtonState.right) {
+        this.events.push({
+          timestamp,
+          x: position.x,
+          y: position.y,
+          button: 'right',
+          action: buttonStates.right ? 'down' : 'up',
+        });
+        this.lastButtonState.right = buttonStates.right;
+      }
+      if (buttonStates.middle !== this.lastButtonState.middle) {
+        this.events.push({
+          timestamp,
+          x: position.x,
+          y: position.y,
+          button: 'middle',
+          action: buttonStates.middle ? 'down' : 'up',
+        });
+        this.lastButtonState.middle = buttonStates.middle;
+      }
+
+      // Record position changes (moves)
       if (position.x !== this.lastPosition.x || position.y !== this.lastPosition.y) {
         this.events.push({
           timestamp,

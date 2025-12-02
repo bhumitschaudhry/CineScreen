@@ -1,13 +1,129 @@
-import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { app } from 'electron';
 import type { CursorConfig } from '../types';
 
 /**
+ * Local cursor assets directory
+ */
+function getAssetsDir(): string {
+  // In development, use src/assets; in production, use app resources
+  const isDev = process.env.NODE_ENV === 'development' || !app?.isPackaged;
+  if (isDev) {
+    return join(__dirname, '../../src/assets');
+  }
+  return join(app?.getPath('exe') || process.cwd(), '../resources/assets');
+}
+
+/**
+ * Map cursor shape names to asset file names
+ */
+const CURSOR_SHAPE_MAP: Record<string, string> = {
+  arrow: 'cursor.svg',
+  pointer: 'pointinghand.svg',
+  hand: 'openhand.svg',
+  crosshair: 'cursor.svg', // Use cursor as fallback
+  move: 'move.svg',
+  copy: 'copy.svg',
+  help: 'help.svg',
+  notallowed: 'notallowed.svg',
+  resize: 'resizenortheastsouthwest.svg',
+  screenshot: 'screenshotselection.svg',
+  zoomin: 'zoomin.svg',
+  zoomout: 'zoomout.svg',
+};
+
+/**
+ * Get cursor asset path for a given shape
+ */
+export function getCursorAssetPath(shape: string): string | null {
+  const assetFileName = CURSOR_SHAPE_MAP[shape] || CURSOR_SHAPE_MAP.arrow;
+  const assetPath = join(getAssetsDir(), assetFileName);
+  
+  if (existsSync(assetPath)) {
+    return assetPath;
+  }
+  
+  return null;
+}
+
+/**
+ * Load and scale SVG cursor from assets
+ */
+function loadAndScaleSVGCursor(assetPath: string, targetSize: number): string {
+  try {
+    const svgContent = readFileSync(assetPath, 'utf-8');
+    
+    // Parse SVG to get original dimensions
+    const widthMatch = svgContent.match(/width="([^"]+)"/);
+    const heightMatch = svgContent.match(/height="([^"]+)"/);
+    const viewBoxMatch = svgContent.match(/viewBox="([^"]+)"/);
+    
+    let originalWidth = 20;
+    let originalHeight = 20;
+    
+    if (viewBoxMatch) {
+      const viewBox = viewBoxMatch[1].split(/\s+/);
+      if (viewBox.length >= 4) {
+        originalWidth = parseFloat(viewBox[2]) || 20;
+        originalHeight = parseFloat(viewBox[3]) || 20;
+      }
+    } else if (widthMatch && heightMatch) {
+      originalWidth = parseFloat(widthMatch[1]) || 20;
+      originalHeight = parseFloat(heightMatch[1]) || 20;
+    }
+    
+    // Calculate scale factor
+    const scale = targetSize / Math.max(originalWidth, originalHeight);
+    const scaledWidth = originalWidth * scale;
+    const scaledHeight = originalHeight * scale;
+    
+    // Replace dimensions in SVG
+    let scaledSVG = svgContent
+      .replace(/width="[^"]+"/, `width="${scaledWidth}"`)
+      .replace(/height="[^"]+"/, `height="${scaledHeight}"`);
+    
+    // Add transform if viewBox exists, or update viewBox
+    if (viewBoxMatch) {
+      // Keep viewBox, just scale the output
+      scaledSVG = scaledSVG.replace(
+        /<svg([^>]*)>/,
+        `<svg$1 width="${scaledWidth}" height="${scaledHeight}">`
+      );
+    } else {
+      // Add viewBox for proper scaling
+      scaledSVG = scaledSVG.replace(
+        /<svg([^>]*)>/,
+        `<svg$1 viewBox="0 0 ${originalWidth} ${originalHeight}" width="${scaledWidth}" height="${scaledHeight}">`
+      );
+    }
+    
+    return scaledSVG;
+  } catch (error) {
+    console.error('Error loading cursor SVG:', error);
+    return '';
+  }
+}
+
+/**
  * Generate SVG cursor based on shape and size
+ * Loads from local assets if available, otherwise generates SVG
  */
 export function generateCursorSVG(config: CursorConfig): string {
   const { size, shape, color = '#000000' } = config;
 
+  // Try to load from local assets first
+  const assetPath = getCursorAssetPath(shape);
+  if (assetPath && existsSync(assetPath)) {
+    const scaledSVG = loadAndScaleSVGCursor(assetPath, size);
+    if (scaledSVG) {
+      // Apply color if needed (for cursors that support color changes)
+      // Most SVG cursors have their own colors, so we might skip this
+      return scaledSVG;
+    }
+  }
+
+  // Fall back to generated SVG cursors
   switch (shape) {
     case 'arrow':
       return generateArrowCursor(size, color);
@@ -20,6 +136,55 @@ export function generateCursorSVG(config: CursorConfig): string {
     default:
       return generateArrowCursor(size, color);
   }
+}
+
+/**
+ * Generate multi-layer cursor with effects
+ */
+export function generateMultiLayerCursor(
+  config: CursorConfig,
+  effects?: { highlight?: boolean; shadow?: boolean }
+): string {
+  const baseCursor = generateCursorSVG(config);
+  const { size, color = '#000000' } = config;
+  const scale = size / 20;
+
+  let layers = baseCursor;
+
+  // Add shadow layer if enabled
+  if (effects?.shadow) {
+    const shadowOffset = 2 * scale;
+    const shadow = generateArrowCursor(size, '#000000');
+    // Wrap in group with offset for shadow
+    layers = `
+      <g>
+        <g transform="translate(${shadowOffset},${shadowOffset})" opacity="0.3">
+          ${shadow}
+        </g>
+        ${baseCursor}
+      </g>
+    `;
+  }
+
+  // Add highlight ring if enabled
+  if (effects?.highlight) {
+    const ringSize = size * 1.2;
+    const ring = `
+      <circle cx="${size / 2}" cy="${size / 2}" r="${ringSize / 2}" 
+              fill="none" 
+              stroke="${color}" 
+              stroke-width="${2 * scale}" 
+              opacity="0.5"/>
+    `;
+    layers = `
+      <g>
+        ${ring}
+        ${baseCursor}
+      </g>
+    `;
+  }
+
+  return layers.trim();
 }
 
 /**
@@ -108,6 +273,13 @@ export function saveCursorToFile(filePath: string, svg: string): void {
     mkdirSync(dir, { recursive: true });
   }
   writeFileSync(filePath, svg);
+}
+
+/**
+ * Get cursor asset file path (for direct file access if needed)
+ */
+export function getCursorAssetFilePath(shape: string): string | null {
+  return getCursorAssetPath(shape);
 }
 
 /**
