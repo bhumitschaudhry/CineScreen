@@ -64,12 +64,14 @@ export class MouseTracker {
 
     logger.info(`Starting tracking interval: ${interval}ms (${1000 / interval}Hz)`);
 
-    this.trackingInterval = setInterval(async () => {
+    const loop = async () => {
+      if (!this.isTracking) return;
+
       iterationCount++;
       try {
+        const buttonStates = await getMouseButtonStates();
         const position = this.getMousePosition();
         const timestamp = Date.now() - this.startTime;
-        const buttonStates = await getMouseButtonStates();
 
         // Detect button state changes (clicks)
         if (buttonStates.left !== this.lastButtonState.left) {
@@ -121,7 +123,13 @@ export class MouseTracker {
       } catch (error) {
         logger.error(`[ERROR] Error in tracking interval (iteration ${iterationCount}):`, error);
       }
-    }, interval);
+
+      if (this.isTracking) {
+        this.trackingInterval = setTimeout(loop, interval);
+      }
+    };
+
+    loop();
   }
 
   /**
@@ -136,7 +144,7 @@ export class MouseTracker {
     logger.info('=== Stopping mouse tracking ===');
     this.isTracking = false;
     if (this.trackingInterval) {
-      clearInterval(this.trackingInterval);
+      clearTimeout(this.trackingInterval);
       this.trackingInterval = undefined;
     }
 
@@ -151,7 +159,7 @@ export class MouseTracker {
     logger.info(`  Click events: ${clickEvents.length} (left: ${leftClicks.length}, right: ${rightClicks.length}, middle: ${middleClicks.length})`);
     logger.info(`  Move events: ${moveEvents.length}`);
     logger.info(`  Tracking duration: ${Date.now() - this.startTime}ms`);
-    
+
     if (clickEvents.length > 0) {
       logger.info(`  Click events details:`, clickEvents);
     } else {
@@ -174,19 +182,19 @@ export class MouseTracker {
   saveToFile(filePath: string): void {
     const clickEvents = this.events.filter(e => e.action === 'down' || e.action === 'up');
     const moveEvents = this.events.filter(e => e.action === 'move');
-    
+
     logger.info(`[SAVE] Saving mouse events to file: ${filePath}`);
     logger.info(`[SAVE] Events summary: ${this.events.length} total (${clickEvents.length} clicks, ${moveEvents.length} moves)`);
-    
+
     const data = {
       startTime: this.startTime,
       events: this.events,
     };
-    
+
     try {
       writeFileSync(filePath, JSON.stringify(data, null, 2));
       logger.info(`[SAVE] Successfully saved ${this.events.length} events to ${filePath}`);
-      
+
       if (clickEvents.length === 0) {
         logger.warn(`[SAVE] WARNING: No click events in saved data!`);
       }
