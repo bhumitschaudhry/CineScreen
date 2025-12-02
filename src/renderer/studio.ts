@@ -35,6 +35,7 @@ let zoomEditor: ZoomEditor | null = null;
 let keyframePanel: KeyframePanel | null = null;
 let isPlaying = false;
 let currentTime = 0;
+let animationFrameId: number | null = null;
 
 // Initialize
 async function init() {
@@ -103,20 +104,29 @@ async function init() {
       if (timeline) {
         timeline.updatePlayhead(time / 1000); // Convert to seconds
       }
-      renderPreview();
+      // Don't render here - use animation frame loop for smooth rendering
     });
+
+    // Set up animation frame loop for smooth cursor rendering
+    setupAnimationFrameLoop();
 
     videoPreview.setOnSeek((time) => {
       videoPreview?.seekTo(time);
+      // Render immediately after seek
+      renderPreview();
     });
 
     timeline.setOnSeek((time) => {
       videoPreview?.seekTo(time);
+      // Render immediately after seek
+      renderPreview();
     });
 
     // Set up keyframe panel callbacks
     keyframePanel.setOnSeek((time) => {
       videoPreview?.seekTo(time);
+      // Render immediately after seek
+      renderPreview();
     });
 
     keyframePanel.setOnDeleteCursorKeyframe((timestamp) => {
@@ -252,6 +262,9 @@ async function loadStudioData() {
 
     updateStatus('Ready');
     logger.info('Studio data loaded successfully');
+    
+    // Render initial preview
+    renderPreview();
   } catch (error) {
     logger.error('Failed to load studio data:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -432,12 +445,18 @@ function setupEventListeners() {
       isPlaying = true;
       const btn = document.getElementById('play-pause-btn');
       if (btn) btn.textContent = 'Pause';
+      // Start animation frame loop when playing
+      startAnimationFrameLoop();
     });
 
     videoEl.addEventListener('pause', () => {
       isPlaying = false;
       const btn = document.getElementById('play-pause-btn');
       if (btn) btn.textContent = 'Play';
+      // Stop animation frame loop when paused
+      stopAnimationFrameLoop();
+      // Render once when paused to show current frame
+      renderPreview();
     });
   }
 
@@ -539,9 +558,14 @@ function renderPreview() {
   zoomCanvas.style.top = `${videoY}px`;
   zoomCanvas.style.position = 'absolute';
 
-  // Clamp currentTime to video duration to match render behavior and avoid edge cases
+  // Get current time directly from video element for accurate synchronization
+  // Convert from seconds to milliseconds
+  const videoCurrentTime = videoEl.currentTime * 1000;
   const videoDuration = metadata.video.duration;
-  const clampedTime = Math.min(currentTime, videoDuration);
+  const clampedTime = Math.min(videoCurrentTime, videoDuration);
+  
+  // Update currentTime for display purposes
+  currentTime = clampedTime;
 
   // Calculate offset of video content within the video element (for letterboxing)
   const videoContentOffsetX = (videoRect.width - actualVideoDisplayWidth) / 2;
@@ -599,6 +623,35 @@ function renderPreview() {
   );
     
     zoomCtx.restore();
+  }
+}
+
+function setupAnimationFrameLoop() {
+  // Animation frame loop will be started/stopped by play/pause events
+}
+
+function startAnimationFrameLoop() {
+  // Cancel any existing loop
+  stopAnimationFrameLoop();
+  
+  // Start new animation frame loop
+  function animate() {
+    if (isPlaying && videoPreview) {
+      // Render preview with current video time
+      renderPreview();
+      animationFrameId = requestAnimationFrame(animate);
+    } else {
+      animationFrameId = null;
+    }
+  }
+  
+  animationFrameId = requestAnimationFrame(animate);
+}
+
+function stopAnimationFrameLoop() {
+  if (animationFrameId !== null) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
   }
 }
 
