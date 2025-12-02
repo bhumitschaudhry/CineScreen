@@ -125,10 +125,19 @@ export async function renderFrame(
     frameData.cursorY = frameData.cursorY - cropY;
   }
 
-  // Calculate aspect-ratio preserving scale (matching preview logic)
+  // Log dimensions for debugging (first frame only)
+  if (frameData.frameIndex === 0) {
+    logger.debug(`renderFrame: frameWidth=${frameWidth}, frameHeight=${frameHeight}, outputWidth=${outputWidth}, outputHeight=${outputHeight}, currentFrameWidth=${currentFrameWidth}, currentFrameHeight=${currentFrameHeight}`);
+    logger.debug(`renderFrame: cursorX=${frameData.cursorX}, cursorY=${frameData.cursorY} (before scaling)`);
+  }
+
+  // If output dimensions match frame dimensions exactly, no scaling needed
+  // Otherwise, calculate aspect-ratio preserving scale
+  let scale = 1.0;
+  if (outputWidth !== currentFrameWidth || outputHeight !== currentFrameHeight) {
   const scaleX = outputWidth / currentFrameWidth;
   const scaleY = outputHeight / currentFrameHeight;
-  const scale = Math.min(scaleX, scaleY);
+    scale = Math.min(scaleX, scaleY);
 
   // Calculate actual display dimensions after aspect-ratio preserving scaling
   const actualDisplayWidth = currentFrameWidth * scale;
@@ -137,6 +146,11 @@ export async function renderFrame(
   // Calculate offsets for letterboxing/pillarboxing (Sharp's 'contain' centers automatically)
   offsetX = (outputWidth - actualDisplayWidth) / 2;
   offsetY = (outputHeight - actualDisplayHeight) / 2;
+  } else {
+    // No scaling needed - output matches frame exactly
+    offsetX = 0;
+    offsetY = 0;
+  }
 
   // Resize with aspect ratio preservation (using 'contain' fit)
   // Sharp will automatically preserve aspect ratio, add background, and center the image
@@ -147,8 +161,16 @@ export async function renderFrame(
   });
 
   // Scale cursor position using the same scale factor and offsets as the preview
+  // Cursor coordinates are already in video coordinate space (0 to frameWidth, 0 to frameHeight)
+  const originalCursorX = frameData.cursorX;
+  const originalCursorY = frameData.cursorY;
   frameData.cursorX = Math.round(frameData.cursorX * scale + offsetX);
   frameData.cursorY = Math.round(frameData.cursorY * scale + offsetY);
+  
+  // Log first frame cursor position after scaling
+  if (frameData.frameIndex === 0) {
+    logger.debug(`renderFrame: cursorX=${frameData.cursorX}, cursorY=${frameData.cursorY} (after scaling: scale=${scale}, offsetX=${offsetX}, offsetY=${offsetY})`);
+  }
 
   // Scale cursor size to match the video scale (matching preview logic)
   const scaledCursorSize = Math.round(cursorSize * scale);
@@ -367,32 +389,52 @@ export function createFrameDataFromKeyframes(
   let lastMovementTime = 0;
   const hideAfterMs = CURSOR_HIDE_AFTER_MS;
 
+  // Log first few keyframes for debugging
+  if (cursorKeyframes.length > 0) {
+    logger.debug(`Creating frame data from ${cursorKeyframes.length} cursor keyframes`);
+    logger.debug(`Video dimensions: ${videoDimensions.width}x${videoDimensions.height}`);
+    logger.debug(`First keyframe: timestamp=${cursorKeyframes[0].timestamp}, x=${cursorKeyframes[0].x}, y=${cursorKeyframes[0].y}`);
+    if (cursorKeyframes.length > 1) {
+      logger.debug(`Last keyframe: timestamp=${cursorKeyframes[cursorKeyframes.length - 1].timestamp}, x=${cursorKeyframes[cursorKeyframes.length - 1].x}, y=${cursorKeyframes[cursorKeyframes.length - 1].y}`);
+    }
+  }
+
   for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
     // Calculate timestamp, clamping to videoDuration
     const timestamp = Math.min(frameIndex * frameInterval, videoDuration);
 
     // Get cursor position from keyframes
+    // Keyframes are stored in video coordinate space (0 to videoWidth, 0 to videoHeight)
     const cursorPos = interpolateCursor(timestamp);
     if (!cursorPos) continue;
+    
+    // Ensure cursor position is within video bounds
+    const clampedX = Math.max(0, Math.min(videoDimensions.width, cursorPos.x));
+    const clampedY = Math.max(0, Math.min(videoDimensions.height, cursorPos.y));
+    
+    // Log first few cursor positions for debugging
+    if (frameIndex < 5) {
+      logger.debug(`Frame ${frameIndex}: timestamp=${timestamp}, cursorPos=(${clampedX}, ${clampedY}), videoDims=(${videoDimensions.width}, ${videoDimensions.height})`);
+    }
 
     // Calculate velocity for motion blur
-    const velocityX = (cursorPos.x - prevCursorX) / deltaTime;
-    const velocityY = (cursorPos.y - prevCursorY) / deltaTime;
-    prevCursorX = cursorPos.x;
-    prevCursorY = cursorPos.y;
+    const velocityX = (clampedX - prevCursorX) / deltaTime;
+    const velocityY = (clampedY - prevCursorY) / deltaTime;
+    prevCursorX = clampedX;
+    prevCursorY = clampedY;
 
     // Check if cursor is moving (for hide when static)
     const movementDistance = Math.sqrt(
-      Math.pow(cursorPos.x - prevSmoothedCursorX, 2) +
-      Math.pow(cursorPos.y - prevSmoothedCursorY, 2)
+      Math.pow(clampedX - prevSmoothedCursorX, 2) +
+      Math.pow(clampedY - prevSmoothedCursorY, 2)
     );
     
     if (movementDistance > staticThreshold) {
       lastMovementTime = timestamp;
     }
     
-    prevSmoothedCursorX = cursorPos.x;
-    prevSmoothedCursorY = cursorPos.y;
+    prevSmoothedCursorX = clampedX;
+    prevSmoothedCursorY = clampedY;
 
     // Determine cursor visibility
     let cursorVisible = true;
@@ -413,8 +455,8 @@ export function createFrameDataFromKeyframes(
       frameDataList.push({
         frameIndex,
         timestamp,
-        cursorX: cursorPos.x,
-        cursorY: cursorPos.y,
+        cursorX: clampedX,
+        cursorY: clampedY,
         cursorVisible,
         cursorVelocityX: velocityX,
         cursorVelocityY: velocityY,
@@ -428,8 +470,8 @@ export function createFrameDataFromKeyframes(
       frameDataList.push({
         frameIndex,
         timestamp,
-        cursorX: cursorPos.x,
-        cursorY: cursorPos.y,
+        cursorX: clampedX,
+        cursorY: clampedY,
         cursorVisible,
         cursorVelocityX: velocityX,
         cursorVelocityY: velocityY,

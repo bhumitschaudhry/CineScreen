@@ -269,6 +269,17 @@ ipcMain.handle('stop-recording', async (_, config: {
 
     // Export metadata alongside the final video
     logger.info('Exporting metadata...');
+    
+    // Get screen dimensions for coordinate conversion (handles Retina displays)
+    let screenDimensions: { width: number; height: number } | undefined;
+    try {
+      const { getScreenDimensions } = await import('../processing/video-utils');
+      screenDimensions = await getScreenDimensions();
+      logger.debug('Screen dimensions for metadata export:', screenDimensions);
+    } catch (error) {
+      logger.warn('Could not get screen dimensions for metadata export:', error);
+    }
+    
     const exporter = new MetadataExporter();
     const metadataPath = await exporter.exportMetadata({
       videoPath: finalVideoPath, // Use final video path so metadata is saved alongside it
@@ -278,6 +289,7 @@ ipcMain.handle('stop-recording', async (_, config: {
       mouseEffectsConfig,
       frameRate: DEFAULT_FRAME_RATE,
       videoDuration: recordingDuration,
+      screenDimensions,
       recordingRegion: currentRecordingConfig?.region,
     });
 

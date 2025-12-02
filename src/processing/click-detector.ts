@@ -84,7 +84,6 @@ function findBinaryPath(): string {
   for (const path of fallbackPaths) {
     if (existsSync(path)) {
       binaryPath = path;
-      logger.debug(`[BINARY] Found binary in fallback location: ${binaryPath}`);
       return binaryPath;
     }
   }
@@ -106,11 +105,9 @@ export async function getMouseButtonStates(): Promise<{
   
   // Return cached result if still fresh
   if (cachedStates && (now - lastCheckTime) < CACHE_DURATION) {
-    logger.debug(`[CACHE] Using cached button states:`, cachedStates);
     return cachedStates;
   }
 
-  logger.debug('[QUERY] Querying Swift binary for button states...');
   const queryStartTime = Date.now();
 
   try {
@@ -175,38 +172,16 @@ export async function getMouseButtonStates(): Promise<{
       }, CLICK_DETECTION_TIMEOUT_MS);
     });
 
-    const queryDuration = Date.now() - queryStartTime;
-    logger.debug(`[RESULT] Binary query took ${queryDuration}ms, raw result: "${result}"`);
-
     const [leftStr, rightStr, middleStr] = result.split(',');
     const left = leftStr === '1';
     const right = rightStr === '1';
     const middle = middleStr === '1';
-
-    logger.debug(`[PARSE] Parsed button states - left: "${leftStr}" -> ${left}, right: "${rightStr}" -> ${right}, middle: "${middleStr}" -> ${middle}`);
 
     const states = {
       left: left || false,
       right: right || false,
       middle: middle || false,
     };
-
-    // Log state changes for debugging
-    if (cachedStates) {
-      const hasChanged = (
-        cachedStates.left !== states.left ||
-        cachedStates.right !== states.right ||
-        cachedStates.middle !== states.middle
-      );
-      
-      if (hasChanged) {
-        logger.info(`[STATE CHANGE] Button state changed from ${JSON.stringify(cachedStates)} to ${JSON.stringify(states)}`);
-      } else {
-        logger.debug(`[NO CHANGE] Button states unchanged: ${JSON.stringify(states)}`);
-      }
-    } else {
-      logger.debug(`[INITIAL] Initial button states: ${JSON.stringify(states)}`);
-    }
 
     // Cache the result
     cachedStates = states;

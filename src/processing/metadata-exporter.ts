@@ -154,24 +154,34 @@ export class MetadataExporter {
     }
 
     // Convert mouse coordinates from screen space to video space
-    // If a recording region was used, coordinates need to be offset
-    // If screen dimensions differ from video dimensions, coordinates need to be scaled
+    // Always convert to video coordinate space so metadata stores correct coordinates
+    // This handles Retina displays where video is 2x screen resolution
     const convertToVideoCoordinates = (screenX: number, screenY: number): { x: number; y: number } => {
       let x = screenX;
       let y = screenY;
 
-      // If recording region was used, subtract the offset
+      // If recording region was used, subtract the offset first
       if (recordingRegion) {
         x = screenX - recordingRegion.x;
         y = screenY - recordingRegion.y;
-        logger.debug(`Converted (${screenX}, ${screenY}) to (${x}, ${y}) using region offset`);
-      } else if (screenDimensions) {
-        // Scale coordinates if screen dimensions differ from video dimensions
+        logger.debug(`Applied region offset: (${screenX}, ${screenY}) -> (${x}, ${y})`);
+      }
+
+      // Always scale coordinates if screen dimensions differ from video dimensions
+      // This handles Retina displays (2x scaling) and other resolution differences
+      if (screenDimensions && 
+          (screenDimensions.width !== videoDimensions.width || 
+           screenDimensions.height !== videoDimensions.height)) {
         const scaleX = videoDimensions.width / screenDimensions.width;
         const scaleY = videoDimensions.height / screenDimensions.height;
-        x = screenX * scaleX;
-        y = screenY * scaleY;
-        logger.debug(`Converted (${screenX}, ${screenY}) to (${x}, ${y}) using scale (${scaleX}, ${scaleY})`);
+        const originalX = x;
+        const originalY = y;
+        x = x * scaleX;
+        y = y * scaleY;
+        logger.debug(`Scaled coordinates: (${originalX}, ${originalY}) -> (${x}, ${y}) using scale (${scaleX}, ${scaleY})`);
+        logger.debug(`Screen: ${screenDimensions.width}x${screenDimensions.height}, Video: ${videoDimensions.width}x${videoDimensions.height}`);
+      } else if (!screenDimensions) {
+        logger.warn('No screen dimensions provided - coordinates may be incorrect for Retina displays');
       }
 
       // Clamp to video bounds

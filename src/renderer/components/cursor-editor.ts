@@ -31,13 +31,37 @@ export class CursorEditor {
       const y = e.clientY - rect.top;
 
       // Convert display coordinates to video coordinates
+      // Account for letterboxing/pillarboxing (video content may not fill entire element)
       const videoWidth = this.metadata.video.width;
       const videoHeight = this.metadata.video.height;
-      const displayWidth = rect.width;
-      const displayHeight = rect.height;
-
-      const videoX = (x / displayWidth) * videoWidth;
-      const videoY = (y / displayHeight) * videoHeight;
+      const videoAspectRatio = videoWidth / videoHeight;
+      const containerAspectRatio = rect.width / rect.height;
+      
+      // Calculate actual video content area within the element
+      let actualVideoDisplayWidth: number;
+      let actualVideoDisplayHeight: number;
+      let videoContentOffsetX = 0;
+      let videoContentOffsetY = 0;
+      
+      if (videoAspectRatio > containerAspectRatio) {
+        // Video is wider - fits to width, letterboxed top/bottom
+        actualVideoDisplayWidth = rect.width;
+        actualVideoDisplayHeight = rect.width / videoAspectRatio;
+        videoContentOffsetY = (rect.height - actualVideoDisplayHeight) / 2;
+      } else {
+        // Video is taller - fits to height, pillarboxed left/right
+        actualVideoDisplayWidth = rect.height * videoAspectRatio;
+        actualVideoDisplayHeight = rect.height;
+        videoContentOffsetX = (rect.width - actualVideoDisplayWidth) / 2;
+      }
+      
+      // Adjust click coordinates relative to video content area
+      const adjustedX = x - videoContentOffsetX;
+      const adjustedY = y - videoContentOffsetY;
+      
+      // Convert to video coordinates
+      const videoX = (adjustedX / actualVideoDisplayWidth) * videoWidth;
+      const videoY = (adjustedY / actualVideoDisplayHeight) * videoHeight;
 
       // Get current time
       const timestamp = this.videoElement.currentTime * 1000; // Convert to ms

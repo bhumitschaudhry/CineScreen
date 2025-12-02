@@ -81,7 +81,6 @@ export class MouseTracker {
             action: (buttonStates.left ? 'down' : 'up') as 'down' | 'up',
           };
           this.events.push(event);
-          logger.info(`[CLICK] Left button ${event.action} at (${position.x}, ${position.y}) at ${timestamp}ms - Total events: ${this.events.length}`);
           this.lastButtonState.left = buttonStates.left;
         }
         if (buttonStates.right !== this.lastButtonState.right) {
@@ -118,13 +117,6 @@ export class MouseTracker {
             action: 'move',
           });
           this.lastPosition = position;
-        }
-
-        // Periodic summary logging
-        if (iterationCount % logInterval === 0) {
-          const clickEvents = this.events.filter(e => e.action === 'down' || e.action === 'up');
-          const moveEvents = this.events.filter(e => e.action === 'move');
-          logger.debug(`[STATUS] Iteration ${iterationCount}: ${this.events.length} total events (${clickEvents.length} clicks, ${moveEvents.length} moves), tracking for ${timestamp}ms`);
         }
       } catch (error) {
         logger.error(`[ERROR] Error in tracking interval (iteration ${iterationCount}):`, error);

@@ -320,7 +320,14 @@ export class VideoProcessor {
       // Step 1: Get video dimensions
       onProgress?.(PROGRESS_ANALYZING_VIDEO, 'Analyzing video...');
       const videoDimensions = await getVideoDimensions(inputVideo);
-      logger.info('Video dimensions:', videoDimensions);
+      logger.info('Video dimensions (from file):', videoDimensions);
+      logger.info('Video dimensions (from metadata):', { width: metadata.video.width, height: metadata.video.height });
+      
+      // Check for dimension mismatch
+      if (videoDimensions.width !== metadata.video.width || videoDimensions.height !== metadata.video.height) {
+        logger.warn(`Video dimension mismatch! File: ${videoDimensions.width}x${videoDimensions.height}, Metadata: ${metadata.video.width}x${metadata.video.height}`);
+        logger.warn('Using actual file dimensions for rendering');
+      }
 
       let screenDimensions;
       try {
@@ -363,6 +370,7 @@ export class VideoProcessor {
       mkdirSync(renderedFrameDir, { recursive: true });
         
       // Step 5: Create frame data directly from keyframes (matching preview timing)
+      // Coordinates in metadata are already in video space (converted during export)
       onProgress?.(PROGRESS_PROCESSING_MOUSE_DATA, 'Processing keyframes...');
       const frameDataList = createFrameDataFromKeyframes(
         metadata.cursor.keyframes,
