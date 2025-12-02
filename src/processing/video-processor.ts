@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import { join, dirname } from 'path';
 import { existsSync, mkdirSync, unlinkSync } from 'fs';
 import type { MouseEvent, CursorConfig, MouseEffectsConfig, ZoomConfig } from '../types';
-import { smoothMouseMovement, interpolateMousePositions } from './effects';
+import { interpolateMousePositions } from './effects';
 import { getCursorAssetFilePath } from './cursor-renderer';
 import { getFfmpegPath } from '../utils/ffmpeg-path';
 import { getVideoDimensions, getScreenDimensions } from './video-utils';
@@ -23,9 +23,25 @@ import {
 
 const logger = createLogger('VideoProcessor');
 
-// Output dimensions
-const OUTPUT_WIDTH = 1920;
-const OUTPUT_HEIGHT = 1080;
+// Target output width (height calculated from aspect ratio)
+const TARGET_WIDTH = 1080;
+
+/**
+ * Calculate output dimensions preserving aspect ratio
+ */
+function calculateOutputDimensions(
+  inputWidth: number,
+  inputHeight: number,
+  targetWidth: number = TARGET_WIDTH
+): { width: number; height: number } {
+  const aspectRatio = inputHeight / inputWidth;
+  const outputHeight = Math.round(targetWidth * aspectRatio);
+  // Ensure even dimensions for video encoding
+  return {
+    width: targetWidth,
+    height: outputHeight % 2 === 0 ? outputHeight : outputHeight + 1,
+  };
+}
 
 export interface VideoProcessingOptions {
   inputVideo: string;
@@ -55,7 +71,7 @@ export class VideoProcessor {
       zoomConfig,
       onProgress,
     } = options;
-
+    
     let cursorConfig = initialCursorConfig;
 
     // Validate inputs
@@ -75,9 +91,8 @@ export class VideoProcessor {
     if (!cursorConfig) {
       logger.warn('No cursor config provided, using defaults');
       cursorConfig = {
-        size: 24,
+        size: 60,
         shape: 'arrow',
-        smoothing: 0.5,
         color: '#000000',
       };
     }
@@ -96,17 +111,17 @@ export class VideoProcessor {
     try {
       // Step 1: Get video and screen dimensions
       onProgress?.(5, 'Analyzing video...');
-      const videoDimensions = await getVideoDimensions(inputVideo);
+    const videoDimensions = await getVideoDimensions(inputVideo);
       logger.info('Video dimensions:', videoDimensions);
 
-      let screenDimensions;
-      try {
-        screenDimensions = await getScreenDimensions();
-        logger.debug('Screen dimensions:', screenDimensions);
-      } catch (error) {
-        logger.warn('Could not get screen dimensions, using video dimensions:', error);
-        screenDimensions = videoDimensions;
-      }
+    let screenDimensions;
+    try {
+      screenDimensions = await getScreenDimensions();
+      logger.debug('Screen dimensions:', screenDimensions);
+    } catch (error) {
+      logger.warn('Could not get screen dimensions, using video dimensions:', error);
+      screenDimensions = videoDimensions;
+    }
 
       // Step 2: Extract frames from video
       onProgress?.(10, 'Extracting frames...');
@@ -124,8 +139,8 @@ export class VideoProcessor {
       onProgress?.(15, 'Preparing cursor...');
       const cursorAssetPath = getCursorAssetFilePath(cursorConfig.shape);
       if (!cursorAssetPath || !existsSync(cursorAssetPath)) {
-        throw new Error(`Cursor asset not found for shape: ${cursorConfig.shape}`);
-      }
+      throw new Error(`Cursor asset not found for shape: ${cursorConfig.shape}`);
+    }
 
       preparedCursorPath = join(tempDir, `cursor_${Date.now()}.png`);
       await prepareCursorImage(cursorAssetPath, cursorConfig.size, preparedCursorPath);
@@ -134,22 +149,15 @@ export class VideoProcessor {
       // Step 4: Create rendered frames directory
       renderedFrameDir = join(tempDir, `rendered_${Date.now()}`);
       mkdirSync(renderedFrameDir, { recursive: true });
-
-      // Step 5: Apply smoothing and interpolation to mouse events
+        
+      // Step 5: Interpolate mouse events for frame timing
       onProgress?.(20, 'Processing mouse data...');
-      let smoothedEvents = mouseEvents;
-      try {
-        smoothedEvents = smoothMouseMovement(mouseEvents, cursorConfig.smoothing);
-      } catch (error) {
-        logger.warn('Error smoothing mouse events:', error);
-      }
-
       let interpolatedEvents: MouseEvent[] = [];
       try {
-        interpolatedEvents = interpolateMousePositions(smoothedEvents, frameRate, videoDuration);
-      } catch (error) {
+        interpolatedEvents = interpolateMousePositions(mouseEvents, frameRate, videoDuration);
+          } catch (error) {
         throw new Error(`Failed to interpolate mouse positions: ${error instanceof Error ? error.message : String(error)}`);
-      }
+        }
 
       // Step 6: Create frame data with cursor positions and zoom
       const frameDataList = createFrameDataFromEvents(
@@ -158,22 +166,33 @@ export class VideoProcessor {
         videoDuration,
         videoDimensions,
         screenDimensions,
+        cursorConfig,
         zoomConfig
       );
       logger.info(`Created frame data for ${frameDataList.length} frames`);
 
-      // Step 7: Render frames with Sharp
+      // Step 7: Calculate output dimensions (preserve aspect ratio)
+      const outputDimensions = calculateOutputDimensions(
+        videoDimensions.width,
+        videoDimensions.height,
+        TARGET_WIDTH
+      );
+      logger.info('Output dimensions:', outputDimensions);
+
+      // Step 8: Render frames with Sharp
       onProgress?.(25, 'Rendering frames...');
       logger.info('Rendering frames with cursor overlay and zoom...');
 
       const renderOptions: FrameRenderOptions = {
         frameWidth: videoDimensions.width,
         frameHeight: videoDimensions.height,
-        outputWidth: OUTPUT_WIDTH,
-        outputHeight: OUTPUT_HEIGHT,
+        outputWidth: outputDimensions.width,
+        outputHeight: outputDimensions.height,
         cursorImagePath: preparedCursorPath,
         cursorSize: cursorConfig.size,
+        cursorConfig,
         zoomConfig,
+        frameRate,
       };
 
       // Process frames in batches with progress updates
@@ -205,7 +224,7 @@ export class VideoProcessor {
 
       logger.info('Frame rendering complete');
 
-      // Step 8: Encode rendered frames to video
+      // Step 9: Encode rendered frames to video
       onProgress?.(90, 'Encoding video...');
       logger.info('Encoding rendered frames to video...');
 
@@ -214,10 +233,10 @@ export class VideoProcessor {
         framePattern: 'frame_%06d.png',
         outputVideo,
         frameRate,
-        width: OUTPUT_WIDTH,
-        height: OUTPUT_HEIGHT,
+        width: outputDimensions.width,
+        height: outputDimensions.height,
       });
-
+      
       onProgress?.(100, 'Complete');
       logger.info('Video processing completed successfully');
 
@@ -253,13 +272,15 @@ export class VideoProcessor {
 
   /**
    * Simple video copy without effects (for fallback)
+   * Scales to target width while preserving aspect ratio
    */
   async copyVideoWithScale(inputVideo: string, outputVideo: string): Promise<void> {
     const ffmpegPath = getFfmpegPath();
-
+    
+    // scale=1080:-2 means width=1080, height=auto (divisible by 2 for encoding)
     const args = [
       '-i', inputVideo,
-      '-vf', `scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}`,
+      '-vf', `scale=${TARGET_WIDTH}:-2`,
       '-c:v', 'libx264',
       '-preset', 'fast',
       '-crf', '18',
@@ -290,4 +311,4 @@ export class VideoProcessor {
       });
     });
   }
-}
+  }

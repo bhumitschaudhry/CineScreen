@@ -210,9 +210,8 @@ export function generateCursorSVG(config: CursorConfig | undefined): string {
   // Provide default config if undefined
   if (!config) {
     config = {
-      size: 24,
+      size: 60,
       shape: 'arrow',
-      smoothing: 0.5,
       color: '#000000',
     };
   }

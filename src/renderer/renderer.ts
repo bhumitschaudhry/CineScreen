@@ -297,7 +297,6 @@ stopBtn.addEventListener('click', async () => {
   const cursorConfig: CursorConfig = {
     size: parseInt(cursorSizeSlider.value),
     shape: cursorShapeSelect.value as CursorConfig['shape'],
-    smoothing: parseInt(smoothingSlider.value) / 100,
     color: cursorColorInput.value,
   };
 
@@ -307,6 +306,7 @@ stopBtn.addEventListener('click', async () => {
     transitionSpeed: parseInt(zoomTransitionSlider.value),
     padding: parseInt(zoomPaddingSlider.value),
     followSpeed: parseInt(zoomFollowSlider.value) / 100,
+    smoothness: 'cinematic',
   } : undefined;
 
   const mouseEffectsConfig: MouseEffectsConfig | undefined = {

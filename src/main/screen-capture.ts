@@ -131,9 +131,11 @@ export class ScreenCapture {
     // Use MKV format (Matroska) which is more forgiving for interrupted recordings
     // MKV doesn't require moov atom at the beginning, making it more reliable
     // avfoundation outputs uyvy422, which libx264 will automatically convert to yuv420p
+    // -capture_cursor 0: Hide cursor during recording (we'll overlay it later)
     const args = [
       '-f', 'avfoundation',
       '-framerate', String(config.frameRate || 30),
+      '-capture_cursor', '0', // Hide cursor - we'll overlay a smooth cursor SVG later
       '-i', `${screenDeviceIndex}:0`, // Screen input (detected index) with no audio (0)
       '-an', // Explicitly disable audio encoding to prevent audio stream issues
       '-c:v', 'libx264',

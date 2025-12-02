@@ -8,6 +8,7 @@ import {
   checkAllPermissions,
   requestMissingPermissions,
 } from './permissions';
+import { hideSystemCursor, showSystemCursor, ensureCursorVisible } from './cursor-visibility';
 import type { RecordingConfig, CursorConfig, RecordingState, ZoomConfig, MouseEffectsConfig } from '../types';
 import { createLogger, setLogSender } from '../utils/logger';
 
@@ -80,6 +81,12 @@ app.on('window-all-closed', () => {
   }
 });
 
+// Ensure cursor is visible when app quits (in case recording was interrupted)
+app.on('before-quit', async () => {
+  logger.info('App quitting, ensuring cursor is visible...');
+  await ensureCursorVisible();
+});
+
 // IPC Handlers
 
 ipcMain.handle('check-permissions', async () => {
@@ -144,6 +151,10 @@ ipcMain.handle('start-recording', async (_, config: RecordingConfig) => {
     await mouseTracker.startTracking();
     logger.info('Mouse tracking started');
 
+    // Hide system cursor during recording (we'll overlay our own smooth cursor)
+    logger.info('Hiding system cursor...');
+    await hideSystemCursor();
+
     // Start screen recording
     logger.info('Starting screen recording...');
     await screenCapture.startRecording({
@@ -157,6 +168,8 @@ ipcMain.handle('start-recording', async (_, config: RecordingConfig) => {
     logger.error('Error starting recording:', error);
     recordingState.isRecording = false;
     mouseTracker?.stopTracking();
+    // Make sure cursor is visible if recording fails
+    await showSystemCursor();
     throw error;
   }
 });
@@ -184,9 +197,8 @@ ipcMain.handle('stop-recording', async (_, config: {
   // Provide default cursor config if not provided
   if (!cursorConfig) {
     cursorConfig = {
-      size: 24,
+      size: 60,
       shape: 'arrow',
-      smoothing: 0.5,
       color: '#000000',
     };
   }
@@ -203,6 +215,11 @@ ipcMain.handle('stop-recording', async (_, config: {
     logger.info('Stopping screen recording...');
     const videoPath = await screenCapture?.stopRecording();
     logger.info('Screen recording stopped, video path:', videoPath);
+
+    // Show system cursor again
+    logger.info('Showing system cursor...');
+    await ensureCursorVisible();
+
     if (!videoPath) {
       throw new Error('Failed to stop recording');
     }

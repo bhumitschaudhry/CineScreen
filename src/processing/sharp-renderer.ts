@@ -1,7 +1,9 @@
 import sharp from 'sharp';
 import { existsSync, readFileSync } from 'fs';
-import type { MouseEvent, ZoomConfig } from '../types';
+import type { MouseEvent, ZoomConfig, CursorConfig } from '../types';
 import { createLogger } from '../utils/logger';
+import { SmoothPosition2D, SmoothValue, applyDeadZone, getAdaptiveSmoothTime, ANIMATION_STYLES } from './smooth-motion';
+import { applyCursorMotionBlur, calculateVelocity } from './motion-blur';
 
 const logger = createLogger('SharpRenderer');
 
@@ -12,7 +14,9 @@ export interface FrameRenderOptions {
   outputHeight: number;
   cursorImagePath: string;
   cursorSize: number;
+  cursorConfig?: CursorConfig;
   zoomConfig?: ZoomConfig;
+  frameRate: number;
 }
 
 export interface FrameData {
@@ -20,9 +24,14 @@ export interface FrameData {
   timestamp: number;
   cursorX: number;
   cursorY: number;
+  cursorVisible: boolean; // Whether cursor should be visible
+  cursorVelocityX: number; // For motion blur
+  cursorVelocityY: number;
   zoomCenterX?: number;
   zoomCenterY?: number;
   zoomLevel?: number;
+  zoomVelocityX?: number; // For zoom motion blur
+  zoomVelocityY?: number;
 }
 
 /**
@@ -41,11 +50,16 @@ export async function renderFrame(
     outputHeight,
     cursorImagePath,
     cursorSize,
+    cursorConfig,
     zoomConfig,
+    frameRate,
   } = options;
 
   // Load the frame
   let pipeline = sharp(inputPath);
+
+  // Track if cursor position needs scaling (for when zoom is disabled)
+  let cursorNeedsScaling = true;
 
   // Apply zoom if enabled
   if (zoomConfig?.enabled && frameData.zoomLevel && frameData.zoomLevel > 1) {
@@ -80,6 +94,7 @@ export async function renderFrame(
     // Scale cursor position to output dimensions
     frameData.cursorX = Math.round(frameData.cursorX * (outputWidth / cropWidth));
     frameData.cursorY = Math.round(frameData.cursorY * (outputHeight / cropHeight));
+    cursorNeedsScaling = false; // Already scaled
   }
 
   // Resize to output dimensions
@@ -88,24 +103,49 @@ export async function renderFrame(
     kernel: 'lanczos3',
   });
 
-  // Prepare cursor overlay
+  // Scale cursor position from video dimensions to output dimensions (if not already scaled)
+  if (cursorNeedsScaling) {
+    frameData.cursorX = Math.round(frameData.cursorX * (outputWidth / frameWidth));
+    frameData.cursorY = Math.round(frameData.cursorY * (outputHeight / frameHeight));
+  }
+
+  // Prepare cursor overlay (only if visible)
   let cursorBuffer: Buffer | null = null;
-  if (existsSync(cursorImagePath)) {
+  if (frameData.cursorVisible && existsSync(cursorImagePath)) {
     try {
       // Resize cursor to the target size
-      cursorBuffer = await sharp(cursorImagePath)
-        .resize(cursorSize, cursorSize, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
-        .png()
-        .toBuffer();
+      let cursorImage = sharp(cursorImagePath)
+        .resize(cursorSize, cursorSize, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } });
+
+      // Apply motion blur if enabled
+      if (options.cursorConfig?.motionBlur?.enabled) {
+        const motionBlurStrength = options.cursorConfig.motionBlur.strength ?? 0.5;
+        const velocity = calculateVelocity(
+          0, 0,
+          frameData.cursorVelocityX,
+          frameData.cursorVelocityY,
+          1 / options.frameRate
+        );
+        
+        // Note: Sharp doesn't have native motion blur, so we'll apply it as a post-process
+        // For now, we'll use a simple blur approximation
+        if (velocity.speed > 10) { // Only blur if moving fast enough
+          const blurSigma = velocity.speed * motionBlurStrength * 0.1;
+          cursorImage = cursorImage.blur(Math.min(blurSigma, 5));
+        }
+      }
+
+      cursorBuffer = await cursorImage.png().toBuffer();
     } catch (error) {
       logger.warn('Failed to load cursor image:', error);
     }
   }
 
   // Calculate cursor overlay position
-  // Position is the top-left corner of the cursor image
-  const cursorLeft = Math.round(frameData.cursorX);
-  const cursorTop = Math.round(frameData.cursorY);
+  // Position is the top-left corner of the cursor image (centered on cursor point)
+  // Subtract half cursor size to center the cursor on the position
+  const cursorLeft = Math.round(frameData.cursorX - cursorSize / 2);
+  const cursorTop = Math.round(frameData.cursorY - cursorSize / 2);
 
   // Composite cursor overlay
   if (cursorBuffer) {
@@ -128,7 +168,8 @@ export async function renderFrame(
 }
 
 /**
- * Create frame data from mouse events
+ * Create frame data from mouse events with professional-quality smooth motion
+ * Uses spring physics and momentum for Screen Studio-like smoothness
  */
 export function createFrameDataFromEvents(
   events: MouseEvent[],
@@ -136,6 +177,7 @@ export function createFrameDataFromEvents(
   videoDuration: number,
   videoDimensions: { width: number; height: number },
   screenDimensions: { width: number; height: number },
+  cursorConfig?: CursorConfig,
   zoomConfig?: ZoomConfig
 ): FrameData[] {
   const frameInterval = 1000 / frameRate;
@@ -146,56 +188,339 @@ export function createFrameDataFromEvents(
   const scaleX = videoDimensions.width / screenDimensions.width;
   const scaleY = videoDimensions.height / screenDimensions.height;
 
-  // Smooth zoom tracking
-  let currentZoomX = videoDimensions.width / 2;
-  let currentZoomY = videoDimensions.height / 2;
-  let currentZoomLevel = 1.0;
-  const followSpeed = zoomConfig?.followSpeed ?? 0.1;
+  // Convert frame interval to seconds for physics simulation
+  const deltaTime = frameInterval / 1000;
+
+  // Initialize smooth position trackers
+  const initialX = events.length > 0 ? events[0].x * scaleX : videoDimensions.width / 2;
+  const initialY = events.length > 0 ? events[0].y * scaleY : videoDimensions.height / 2;
+  const finalX = events.length > 0 ? events[events.length - 1].x * scaleX : initialX;
+  const finalY = events.length > 0 ? events[events.length - 1].y * scaleY : initialY;
+
+  // Determine cursor animation style for glide transitions
+  const cursorAnimationStyle = cursorConfig?.animationStyle ?? 'mellow';
+  const glideStyle = ANIMATION_STYLES[cursorAnimationStyle];
+  
+  // Start gliding 7 frames before the click
+  const glideStartFrames = 7;
+  const glideStartMs = (glideStartFrames / frameRate) * 1000; // Convert frames to milliseconds
+
+  // Determine zoom animation style (prefer animationStyle over legacy smoothness)
+  const zoomAnimationStyle = zoomConfig?.animationStyle ?? 
+    (zoomConfig?.smoothness === 'cinematic' ? 'slow' :
+     zoomConfig?.smoothness === 'snappy' ? 'quick' : 'mellow');
+  const zoomStyle = ANIMATION_STYLES[zoomAnimationStyle];
+  const baseSmoothTime = zoomStyle.smoothTime;
+
+  // Zoom center smoother (Screen Studio-like cinematic following)
+  const zoomCenterSmoother = new SmoothPosition2D(
+    videoDimensions.width / 2,
+    videoDimensions.height / 2,
+    baseSmoothTime
+  );
+
+  // Dead zone radius - prevents jitter when cursor is nearly stationary
+  const deadZoneRadius = (zoomConfig?.deadZone ?? 15) * scaleX; // Scale with video
+
+  // Previous cursor position for velocity calculation
+  let prevCursorX = initialX;
+  let prevCursorY = initialY;
+  let prevSmoothedCursorX = initialX;
+  let prevSmoothedCursorY = initialY;
+  let prevZoomCenterX = videoDimensions.width / 2;
+  let prevZoomCenterY = videoDimensions.height / 2;
+
+  // Track cursor movement for "hide when static" feature
+  const staticThreshold = 2; // pixels - cursor is considered static if movement < this
+  let lastMovementTime = 0;
+  const hideAfterMs = 1000; // Hide cursor after 1 second of no movement
+
+  // Loop position: return cursor to initial position at end
+  const loopPosition = cursorConfig?.loopPosition ?? false;
+  const loopStartFrame = loopPosition ? Math.max(0, totalFrames - Math.floor(frameRate * 0.5)) : totalFrames; // Last 0.5 seconds
+
+  // ========================================
+  // CLICK-TO-CLICK CURSOR GLIDE
+  // ========================================
+  // Cursor glides smoothly between click positions
+  // Between clicks, cursor stays at the last click position (doesn't follow movement)
+  const clickEvents = events.filter(e => e.action === 'down');
+  
+  // Build cursor path: only click positions + initial position
+  const cursorPositions: Array<{ timestamp: number; x: number; y: number }> = [];
+  
+  // Always start at initial position
+  cursorPositions.push({ timestamp: 0, x: initialX, y: initialY });
+  
+  // Add all click positions
+  for (const click of clickEvents) {
+    cursorPositions.push({
+      timestamp: click.timestamp,
+      x: click.x * scaleX,
+      y: click.y * scaleY,
+    });
+  }
+  
+  // If there are clicks, add a final position at the end to keep cursor visible
+  if (clickEvents.length > 0) {
+    const lastClick = clickEvents[clickEvents.length - 1];
+    cursorPositions.push({
+      timestamp: videoDuration,
+      x: lastClick.x * scaleX,
+      y: lastClick.y * scaleY,
+    });
+  } else {
+    // No clicks - cursor stays at initial position
+    cursorPositions.push({
+      timestamp: videoDuration,
+      x: initialX,
+      y: initialY,
+    });
+  }
+  
+  // ========================================
+  // SMART AUTO-ZOOM: Focus Detection
+  // ========================================
+  // Only zoom if user focuses on an area for 2 full seconds
+  // Otherwise, don't zoom at all
+  const focusRequiredMs = 2000; // Must focus for 2 seconds before zoom activates
+  const focusThreshold = 80 * scaleX; // Max movement to be considered "focused" (80 logical pixels)
+  const focusAreaRadius = 150 * scaleX; // Must stay within this radius to maintain focus
+  
+  let focusStartTime: number | null = null; // When focus started
+  let focusAnchorX = initialX; // The position where focus started
+  let focusAnchorY = initialY;
+  let currentZoomLevel = 1.0; // Smoothly interpolate zoom level
+  const zoomTransitionSpeed = 0.03; // How fast to transition zoom (slower for smoother effect)
 
   for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
     const timestamp = frameIndex * frameInterval;
 
-    // Find the mouse event for this frame
-    let eventIndex = 0;
-    for (let i = 0; i < events.length; i++) {
-      if (events[i].timestamp <= timestamp) {
-        eventIndex = i;
-      } else {
+    // ========================================
+    // CLICK-TO-CLICK GLIDE: Only move between click positions
+    // ========================================
+    // Find which click positions we're between
+    let prevClick = cursorPositions[0];
+    let nextClick = cursorPositions[cursorPositions.length - 1];
+    
+    // Find the segment we're in
+    for (let i = 0; i < cursorPositions.length - 1; i++) {
+      if (timestamp >= cursorPositions[i].timestamp && timestamp < cursorPositions[i + 1].timestamp) {
+        prevClick = cursorPositions[i];
+        nextClick = cursorPositions[i + 1];
         break;
       }
     }
+    
+    // If we're at or past the last position, use it
+    if (timestamp >= cursorPositions[cursorPositions.length - 1].timestamp) {
+      prevClick = cursorPositions[cursorPositions.length - 1];
+      nextClick = cursorPositions[cursorPositions.length - 1];
+    }
+    
+    // Calculate glide progress between clicks
+    const timeBetweenClicks = nextClick.timestamp - prevClick.timestamp;
+    const timeSincePrevClick = timestamp - prevClick.timestamp;
+    const timeUntilNextClick = nextClick.timestamp - timestamp;
+    
+    let targetCursorX = prevClick.x;
+    let targetCursorY = prevClick.y;
+    
+    // If there's a next click, glide towards it starting 7 frames before
+    if (timeBetweenClicks > 0 && prevClick !== nextClick) {
+      // Check if we should start gliding (7 frames before the click)
+      if (timeUntilNextClick <= glideStartMs && timeUntilNextClick >= 0) {
+        // We're within the glide window - calculate glide progress
+        const glideProgress = 1 - (timeUntilNextClick / glideStartMs);
+        
+        // Smooth ease-in-out curve for natural glide
+        const easeInOut = glideProgress < 0.5 
+          ? 2 * glideProgress * glideProgress 
+          : 1 - Math.pow(-2 * glideProgress + 2, 2) / 2;
+        
+        // Glide from previous click position to next click position
+        targetCursorX = prevClick.x + (nextClick.x - prevClick.x) * easeInOut;
+        targetCursorY = prevClick.y + (nextClick.y - prevClick.y) * easeInOut;
+      } else if (timeUntilNextClick < 0) {
+        // We've reached or passed the next click - stay at it
+        targetCursorX = nextClick.x;
+        targetCursorY = nextClick.y;
+      } else {
+        // We're before the glide window - stay at previous click position
+        targetCursorX = prevClick.x;
+        targetCursorY = prevClick.y;
+      }
+    } else {
+      // No time between clicks or at same position - use current position
+      targetCursorX = prevClick.x;
+      targetCursorY = prevClick.y;
+    }
+    
+    // Handle loop position - return to initial position at end
+    if (loopPosition && frameIndex >= loopStartFrame) {
+      const loopProgress = (frameIndex - loopStartFrame) / (totalFrames - loopStartFrame);
+      const loopEase = loopProgress * loopProgress;
+      targetCursorX = targetCursorX + (initialX - targetCursorX) * loopEase;
+      targetCursorY = targetCursorY + (initialY - targetCursorY) * loopEase;
+    }
 
-    const event = events[Math.min(eventIndex, events.length - 1)] || { x: 0, y: 0, timestamp: 0 };
+    // Calculate cursor velocity for motion blur
+    const velocityX = (targetCursorX - prevCursorX) / deltaTime;
+    const velocityY = (targetCursorY - prevCursorY) / deltaTime;
+    prevCursorX = targetCursorX;
+    prevCursorY = targetCursorY;
 
-    // Scale mouse coordinates to video coordinates
-    const cursorX = event.x * scaleX;
-    const cursorY = event.y * scaleY;
+    // Check if cursor is moving (for hide when static)
+    const movementDistance = Math.sqrt(
+      Math.pow(targetCursorX - prevSmoothedCursorX, 2) +
+      Math.pow(targetCursorY - prevSmoothedCursorY, 2)
+    );
+    
+    if (movementDistance > staticThreshold) {
+      lastMovementTime = timestamp;
+    }
 
-    // Calculate zoom
-    let zoomCenterX = cursorX;
-    let zoomCenterY = cursorY;
+    // Use target position directly (no additional smoothing - glide handles it)
+    const smoothedCursor = { x: targetCursorX, y: targetCursorY };
+    
+    // Calculate velocity for motion blur
+    const smoothedVelocityX = velocityX;
+    const smoothedVelocityY = velocityY;
+    prevSmoothedCursorX = smoothedCursor.x;
+    prevSmoothedCursorY = smoothedCursor.y;
+
+    // Determine cursor visibility
+    // By default, cursor is always visible (overlaid from tracking data)
+    // Only hide if hideWhenStatic is explicitly enabled AND cursor hasn't moved recently
+    let cursorVisible = true; // Default: always show cursor overlay
+    if (cursorConfig?.hideWhenStatic) {
+      // Only hide if cursor hasn't moved in the last hideAfterMs milliseconds
+      cursorVisible = (timestamp - lastMovementTime) < hideAfterMs;
+    }
+
+    // ========================================
+    // SMART AUTO-ZOOM: 2-Second Focus Detection
+    // ========================================
+    // Check if cursor is within focus area
+    const distanceFromAnchor = Math.sqrt(
+      Math.pow(smoothedCursor.x - focusAnchorX, 2) +
+      Math.pow(smoothedCursor.y - focusAnchorY, 2)
+    );
+    
+    // Check if cursor has moved too much (breaking focus)
+    const isWithinFocusArea = distanceFromAnchor < focusAreaRadius;
+    
+    if (isWithinFocusArea) {
+      // Cursor is staying in one area
+      if (focusStartTime === null) {
+        // Start tracking focus
+        focusStartTime = timestamp;
+        focusAnchorX = smoothedCursor.x;
+        focusAnchorY = smoothedCursor.y;
+      }
+    } else {
+      // Cursor moved too far - reset focus tracking
+      focusStartTime = null;
+      focusAnchorX = smoothedCursor.x;
+      focusAnchorY = smoothedCursor.y;
+    }
+    
+    // Calculate how long user has been focused
+    const focusDuration = focusStartTime !== null ? timestamp - focusStartTime : 0;
+    const isFocused = focusDuration >= focusRequiredMs; // Only true after 2 seconds
+
+    // Initialize zoom values
+    let zoomCenterX = smoothedCursor.x;
+    let zoomCenterY = smoothedCursor.y;
     let zoomLevel = 1.0;
 
     if (zoomConfig?.enabled) {
-      zoomLevel = zoomConfig.level;
+      // Target zoom level: only zoom if focused for 2+ seconds
+      const targetZoomLevel = isFocused ? zoomConfig.level : 1.0;
+      
+      // Smoothly transition zoom level (auto-zoom only when focused)
+      if (zoomConfig?.autoZoom !== false) {
+        // Gradual zoom in/out
+        if (targetZoomLevel > currentZoomLevel) {
+          currentZoomLevel = Math.min(targetZoomLevel, currentZoomLevel + zoomTransitionSpeed);
+        } else if (targetZoomLevel < currentZoomLevel) {
+          currentZoomLevel = Math.max(targetZoomLevel, currentZoomLevel - zoomTransitionSpeed * 3); // Zoom out faster
+        }
+      } else {
+        // Auto-zoom disabled, always use configured level
+        currentZoomLevel = zoomConfig.level;
+      }
+      
+      zoomLevel = currentZoomLevel;
 
-      // Smooth zoom center tracking
-      currentZoomX += (cursorX - currentZoomX) * followSpeed;
-      currentZoomY += (cursorY - currentZoomY) * followSpeed;
+      // Apply dead zone to prevent micro-movements
+      const targetWithDeadZone = applyDeadZone(
+        zoomCenterSmoother.getPosition(),
+        { x: smoothedCursor.x, y: smoothedCursor.y },
+        deadZoneRadius
+      );
 
-      zoomCenterX = currentZoomX;
-      zoomCenterY = currentZoomY;
+      // Adaptive smooth time based on cursor velocity
+      // Fast movements = quicker following, slow movements = more cinematic
+      const minSmoothTime = zoomStyle.minSmoothTime;
+
+      const adaptiveSmoothTime = getAdaptiveSmoothTime(
+        velocityX,
+        velocityY,
+        baseSmoothTime,
+        minSmoothTime,
+        800   // Velocity threshold (pixels per second)
+      );
+
+      // Create a temporary smoother with adaptive timing
+      // This is a simplified approach - in production you'd modify the smoother's internal time
+      const followStrength = baseSmoothTime / adaptiveSmoothTime;
+      
+      // Set target and update zoom center with smooth following
+      zoomCenterSmoother.setTarget(targetWithDeadZone.x, targetWithDeadZone.y);
+      const smoothedZoomCenter = zoomCenterSmoother.update(deltaTime * followStrength);
+
+      zoomCenterX = smoothedZoomCenter.x;
+      zoomCenterY = smoothedZoomCenter.y;
+
+      // Clamp zoom center to keep view within bounds
+      const halfWidth = (videoDimensions.width / zoomLevel) / 2;
+      const halfHeight = (videoDimensions.height / zoomLevel) / 2;
+      
+      zoomCenterX = Math.max(halfWidth, Math.min(videoDimensions.width - halfWidth, zoomCenterX));
+      zoomCenterY = Math.max(halfHeight, Math.min(videoDimensions.height - halfHeight, zoomCenterY));
+
+      // Calculate zoom velocity for motion blur
+      const zoomVelocityX = (zoomCenterX - prevZoomCenterX) / deltaTime;
+      const zoomVelocityY = (zoomCenterY - prevZoomCenterY) / deltaTime;
+      prevZoomCenterX = zoomCenterX;
+      prevZoomCenterY = zoomCenterY;
+
+      frameDataList.push({
+        frameIndex,
+        timestamp,
+        cursorX: smoothedCursor.x,
+        cursorY: smoothedCursor.y,
+        cursorVisible,
+        cursorVelocityX: smoothedVelocityX,
+        cursorVelocityY: smoothedVelocityY,
+        zoomCenterX,
+        zoomCenterY,
+        zoomLevel,
+        zoomVelocityX,
+        zoomVelocityY,
+      });
+    } else {
+      frameDataList.push({
+        frameIndex,
+        timestamp,
+        cursorX: smoothedCursor.x,
+        cursorY: smoothedCursor.y,
+        cursorVisible,
+        cursorVelocityX: smoothedVelocityX,
+        cursorVelocityY: smoothedVelocityY,
+      });
     }
-
-    frameDataList.push({
-      frameIndex,
-      timestamp,
-      cursorX,
-      cursorY,
-      zoomCenterX,
-      zoomCenterY,
-      zoomLevel,
-    });
   }
 
   return frameDataList;
@@ -232,4 +557,3 @@ export async function prepareCursorImage(
     return outputPath;
   }
 }
-
