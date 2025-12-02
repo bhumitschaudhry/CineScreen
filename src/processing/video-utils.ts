@@ -81,12 +81,16 @@ export async function getVideoDimensions(videoPath: string): Promise<{
   width: number;
   height: number;
 }> {
+  if (!videoPath || !existsSync(videoPath)) {
+    throw new Error(`Video file not found: ${videoPath}`);
+  }
+
   return new Promise((resolve, reject) => {
     let ffmpegPath: string;
     try {
       ffmpegPath = getFfmpegPath();
     } catch (error) {
-      reject(error instanceof Error ? error : new Error(String(error)));
+      reject(new Error(`Failed to get FFmpeg path: ${error instanceof Error ? error.message : String(error)}`));
       return;
     }
 
@@ -97,29 +101,58 @@ export async function getVideoDimensions(videoPath: string): Promise<{
     ]);
 
     let errorOutput = '';
+    let hasResolved = false;
 
     ffmpegProcess.stderr?.on('data', (data) => {
       errorOutput += data.toString();
     });
 
-    ffmpegProcess.on('close', () => {
+    ffmpegProcess.on('close', (code) => {
+      if (hasResolved) return;
+      hasResolved = true;
+
       // Parse dimensions from FFmpeg output
       // Format: Stream #0:0: Video: ... 1920x1080 ...
       const match = errorOutput.match(/(\d+)x(\d+)/);
       if (match) {
-        resolve({
-          width: parseInt(match[1], 10),
-          height: parseInt(match[2], 10),
-        });
+        const width = parseInt(match[1], 10);
+        const height = parseInt(match[2], 10);
+        if (width > 0 && height > 0) {
+          resolve({ width, height });
+        } else {
+          reject(new Error(`Invalid video dimensions parsed: ${width}x${height}`));
+        }
       } else {
-        // Default to common resolution
-        resolve({ width: 1920, height: 1080 });
+        // Try alternative parsing
+        const altMatch = errorOutput.match(/Video:.*?(\d{3,5})x(\d{3,5})/);
+        if (altMatch) {
+          const width = parseInt(altMatch[1], 10);
+          const height = parseInt(altMatch[2], 10);
+          if (width > 0 && height > 0) {
+            resolve({ width, height });
+          } else {
+            reject(new Error(`Could not parse video dimensions from FFmpeg output`));
+          }
+        } else {
+          reject(new Error(`Could not parse video dimensions from FFmpeg output. Code: ${code}`));
+        }
       }
     });
 
     ffmpegProcess.on('error', (error) => {
+      if (hasResolved) return;
+      hasResolved = true;
       reject(new Error(`Failed to get video dimensions: ${error.message}`));
     });
+
+    // Timeout after 30 seconds
+    setTimeout(() => {
+      if (!hasResolved) {
+        hasResolved = true;
+        ffmpegProcess.kill();
+        reject(new Error('Timeout getting video dimensions'));
+      }
+    }, 30000);
   });
 }
 

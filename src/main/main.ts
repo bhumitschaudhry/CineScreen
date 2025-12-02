@@ -176,12 +176,36 @@ ipcMain.handle('start-recording', async (_, config: RecordingConfig) => {
 });
 
 ipcMain.handle('stop-recording', async (_, config: {
-  cursorConfig: CursorConfig;
+  cursorConfig?: CursorConfig;
   zoomConfig?: ZoomConfig;
   mouseEffectsConfig?: MouseEffectsConfig;
-}) => {
-  const { cursorConfig, zoomConfig, mouseEffectsConfig } = config;
-  debugLog('IPC: stop-recording called with config:', config);
+} | CursorConfig) => {
+  // Handle both old format (just CursorConfig) and new format (object with cursorConfig)
+  let cursorConfig: CursorConfig | undefined;
+  let zoomConfig: ZoomConfig | undefined;
+  let mouseEffectsConfig: MouseEffectsConfig | undefined;
+  
+  if (config && 'cursorConfig' in config) {
+    // New format
+    cursorConfig = config.cursorConfig;
+    zoomConfig = config.zoomConfig;
+    mouseEffectsConfig = config.mouseEffectsConfig;
+  } else if (config && 'size' in config) {
+    // Old format - just CursorConfig
+    cursorConfig = config as CursorConfig;
+  }
+  
+  // Provide default cursor config if not provided
+  if (!cursorConfig) {
+    cursorConfig = {
+      size: 24,
+      shape: 'arrow',
+      smoothing: 0.5,
+      color: '#000000',
+    };
+  }
+  
+  debugLog('IPC: stop-recording called with config:', { cursorConfig, zoomConfig, mouseEffectsConfig });
   
   if (!recordingState.isRecording) {
     debugLog('ERROR: No recording in progress');

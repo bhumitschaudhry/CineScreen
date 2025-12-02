@@ -1,4 +1,4 @@
-import type { RecordingConfig, CursorConfig } from '../types';
+import type { RecordingConfig, CursorConfig, ZoomConfig, MouseEffectsConfig } from '../types';
 
 declare global {
   interface Window {
@@ -9,9 +9,11 @@ declare global {
       }>;
       requestPermissions: () => Promise<void>;
       startRecording: (config: RecordingConfig) => Promise<{ success: boolean }>;
-      stopRecording: (
-        cursorConfig: CursorConfig
-      ) => Promise<{ success: boolean; outputPath: string }>;
+      stopRecording: (config: {
+        cursorConfig: CursorConfig;
+        zoomConfig?: ZoomConfig;
+        mouseEffectsConfig?: MouseEffectsConfig;
+      }) => Promise<{ success: boolean; outputPath: string }>;
       getRecordingState: () => Promise<{
         isRecording: boolean;
         startTime?: number;
@@ -35,6 +37,7 @@ const requestPermissionsBtn = document.getElementById('request-permissions-btn')
 const cursorSizeSlider = document.getElementById('cursor-size') as HTMLInputElement;
 const cursorSizeValue = document.getElementById('cursor-size-value') as HTMLSpanElement;
 const cursorShapeSelect = document.getElementById('cursor-shape') as HTMLSelectElement;
+const cursorColorInput = document.getElementById('cursor-color') as HTMLInputElement;
 const smoothingSlider = document.getElementById('smoothing') as HTMLInputElement;
 const smoothingValue = document.getElementById('smoothing-value') as HTMLSpanElement;
 const outputPathInput = document.getElementById('output-path') as HTMLInputElement;
@@ -43,6 +46,39 @@ const toggleDebugBtn = document.getElementById('toggle-debug-btn') as HTMLButton
 const clearDebugBtn = document.getElementById('clear-debug-btn') as HTMLButtonElement;
 const debugLogContainer = document.getElementById('debug-log-container') as HTMLDivElement;
 const debugLogContent = document.getElementById('debug-log-content') as HTMLDivElement;
+
+// Zoom settings
+const zoomEnabledCheckbox = document.getElementById('zoom-enabled') as HTMLInputElement;
+const zoomLevelSlider = document.getElementById('zoom-level') as HTMLInputElement;
+const zoomLevelValue = document.getElementById('zoom-level-value') as HTMLSpanElement;
+const zoomTransitionSlider = document.getElementById('zoom-transition-speed') as HTMLInputElement;
+const zoomTransitionValue = document.getElementById('zoom-transition-speed-value') as HTMLSpanElement;
+const zoomPaddingSlider = document.getElementById('zoom-padding') as HTMLInputElement;
+const zoomPaddingValue = document.getElementById('zoom-padding-value') as HTMLSpanElement;
+const zoomFollowSlider = document.getElementById('zoom-follow-speed') as HTMLInputElement;
+const zoomFollowValue = document.getElementById('zoom-follow-speed-value') as HTMLSpanElement;
+
+// Mouse effects settings
+const clickCirclesEnabled = document.getElementById('click-circles-enabled') as HTMLInputElement;
+const clickCirclesSizeSlider = document.getElementById('click-circles-size') as HTMLInputElement;
+const clickCirclesSizeValue = document.getElementById('click-circles-size-value') as HTMLSpanElement;
+const clickCirclesColorPicker = document.getElementById('click-circles-color-picker') as HTMLInputElement;
+const clickCirclesDurationSlider = document.getElementById('click-circles-duration') as HTMLInputElement;
+const clickCirclesDurationValue = document.getElementById('click-circles-duration-value') as HTMLSpanElement;
+
+const trailEnabled = document.getElementById('trail-enabled') as HTMLInputElement;
+const trailLengthSlider = document.getElementById('trail-length') as HTMLInputElement;
+const trailLengthValue = document.getElementById('trail-length-value') as HTMLSpanElement;
+const trailFadeSlider = document.getElementById('trail-fade-speed') as HTMLInputElement;
+const trailFadeValue = document.getElementById('trail-fade-speed-value') as HTMLSpanElement;
+const trailColorPicker = document.getElementById('trail-color-picker') as HTMLInputElement;
+
+const highlightRingEnabled = document.getElementById('highlight-ring-enabled') as HTMLInputElement;
+const highlightRingSizeSlider = document.getElementById('highlight-ring-size') as HTMLInputElement;
+const highlightRingSizeValue = document.getElementById('highlight-ring-size-value') as HTMLSpanElement;
+const highlightRingColorPicker = document.getElementById('highlight-ring-color-picker') as HTMLInputElement;
+const highlightRingPulseSlider = document.getElementById('highlight-ring-pulse-speed') as HTMLInputElement;
+const highlightRingPulseValue = document.getElementById('highlight-ring-pulse-speed-value') as HTMLSpanElement;
 
 let isRecording = false;
 let outputPath: string | null = null;
@@ -53,12 +89,109 @@ const maxLogEntries = 500; // Limit log entries to prevent memory issues
 async function init() {
   await checkPermissions();
   updateUI();
+  setupEventListeners();
 
   // Set default output path
   outputPath = await window.electronAPI.selectOutputPath();
   if (outputPath) {
     outputPathInput.value = outputPath;
   }
+}
+
+// Setup event listeners for all settings
+function setupEventListeners() {
+  // Zoom enabled toggle
+  zoomEnabledCheckbox.addEventListener('change', () => {
+    const enabled = zoomEnabledCheckbox.checked;
+    const zoomSettings = document.getElementById('zoom-settings');
+    const zoomTransition = document.getElementById('zoom-transition');
+    const zoomPadding = document.getElementById('zoom-padding');
+    const zoomFollow = document.getElementById('zoom-follow');
+    
+    [zoomSettings, zoomTransition, zoomPadding, zoomFollow].forEach(el => {
+      if (el) el.style.display = enabled ? 'block' : 'none';
+    });
+  });
+
+  // Click circles enabled toggle
+  clickCirclesEnabled.addEventListener('change', () => {
+    const enabled = clickCirclesEnabled.checked;
+    const settings = document.getElementById('click-circles-settings');
+    const color = document.getElementById('click-circles-color');
+    const duration = document.getElementById('click-circles-duration');
+    
+    [settings, color, duration].forEach(el => {
+      if (el) el.style.display = enabled ? 'block' : 'none';
+    });
+  });
+
+  // Trail enabled toggle
+  trailEnabled.addEventListener('change', () => {
+    const enabled = trailEnabled.checked;
+    const settings = document.getElementById('trail-settings');
+    const fade = document.getElementById('trail-fade');
+    const color = document.getElementById('trail-color');
+    
+    [settings, fade, color].forEach(el => {
+      if (el) el.style.display = enabled ? 'block' : 'none';
+    });
+  });
+
+  // Highlight ring enabled toggle
+  highlightRingEnabled.addEventListener('change', () => {
+    const enabled = highlightRingEnabled.checked;
+    const settings = document.getElementById('highlight-ring-settings');
+    const color = document.getElementById('highlight-ring-color');
+    const pulse = document.getElementById('highlight-ring-pulse');
+    
+    [settings, color, pulse].forEach(el => {
+      if (el) el.style.display = enabled ? 'block' : 'none';
+    });
+  });
+
+  // Zoom sliders
+  zoomLevelSlider.addEventListener('input', (e) => {
+    zoomLevelValue.textContent = (e.target as HTMLInputElement).value;
+  });
+  zoomTransitionSlider.addEventListener('input', (e) => {
+    zoomTransitionValue.textContent = (e.target as HTMLInputElement).value;
+  });
+  zoomPaddingSlider.addEventListener('input', (e) => {
+    zoomPaddingValue.textContent = (e.target as HTMLInputElement).value;
+  });
+  zoomFollowSlider.addEventListener('input', (e) => {
+    zoomFollowValue.textContent = (e.target as HTMLInputElement).value;
+  });
+
+  // Click circles sliders
+  clickCirclesSizeSlider.addEventListener('input', (e) => {
+    clickCirclesSizeValue.textContent = (e.target as HTMLInputElement).value;
+  });
+  clickCirclesDurationSlider.addEventListener('input', (e) => {
+    clickCirclesDurationValue.textContent = (e.target as HTMLInputElement).value;
+  });
+
+  // Trail sliders
+  trailLengthSlider.addEventListener('input', (e) => {
+    trailLengthValue.textContent = (e.target as HTMLInputElement).value;
+  });
+  trailFadeSlider.addEventListener('input', (e) => {
+    trailFadeValue.textContent = (e.target as HTMLInputElement).value;
+  });
+
+  // Highlight ring sliders
+  highlightRingSizeSlider.addEventListener('input', (e) => {
+    highlightRingSizeValue.textContent = (e.target as HTMLInputElement).value;
+  });
+  highlightRingPulseSlider.addEventListener('input', (e) => {
+    highlightRingPulseValue.textContent = (e.target as HTMLInputElement).value;
+  });
+
+  // Initialize visibility
+  zoomEnabledCheckbox.dispatchEvent(new Event('change'));
+  clickCirclesEnabled.dispatchEvent(new Event('change'));
+  trailEnabled.dispatchEvent(new Event('change'));
+  highlightRingEnabled.dispatchEvent(new Event('change'));
 }
 
 // Check permissions
@@ -157,13 +290,47 @@ stopBtn.addEventListener('click', async () => {
     size: parseInt(cursorSizeSlider.value),
     shape: cursorShapeSelect.value as CursorConfig['shape'],
     smoothing: parseInt(smoothingSlider.value) / 100,
+    color: cursorColorInput.value,
+  };
+
+  const zoomConfig: ZoomConfig | undefined = zoomEnabledCheckbox.checked ? {
+    enabled: true,
+    level: parseFloat(zoomLevelSlider.value),
+    transitionSpeed: parseInt(zoomTransitionSlider.value),
+    padding: parseInt(zoomPaddingSlider.value),
+    followSpeed: parseInt(zoomFollowSlider.value) / 100,
+  } : undefined;
+
+  const mouseEffectsConfig: MouseEffectsConfig | undefined = {
+    clickCircles: {
+      enabled: clickCirclesEnabled.checked,
+      size: parseInt(clickCirclesSizeSlider.value),
+      color: clickCirclesColorPicker.value,
+      duration: parseInt(clickCirclesDurationSlider.value),
+    },
+    trail: {
+      enabled: trailEnabled.checked,
+      length: parseInt(trailLengthSlider.value),
+      fadeSpeed: parseInt(trailFadeSlider.value) / 100,
+      color: trailColorPicker.value,
+    },
+    highlightRing: {
+      enabled: highlightRingEnabled.checked,
+      size: parseInt(highlightRingSizeSlider.value),
+      color: highlightRingColorPicker.value,
+      pulseSpeed: parseInt(highlightRingPulseSlider.value) / 100,
+    },
   };
 
   try {
     statusText.textContent = 'Stopping recording...';
     stopBtn.disabled = true;
 
-    const result = await window.electronAPI.stopRecording(cursorConfig);
+    const result = await window.electronAPI.stopRecording({
+      cursorConfig,
+      zoomConfig,
+      mouseEffectsConfig,
+    });
 
     isRecording = false;
     updateUI();

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { RecordingConfig, CursorConfig, PermissionStatus, RecordingState } from '../types';
+import type { RecordingConfig, CursorConfig, ZoomConfig, MouseEffectsConfig, PermissionStatus, RecordingState } from '../types';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   checkPermissions: (): Promise<PermissionStatus> =>
@@ -11,10 +11,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startRecording: (config: RecordingConfig): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('start-recording', config),
 
-  stopRecording: (
-    cursorConfig: CursorConfig
-  ): Promise<{ success: boolean; outputPath: string }> =>
-    ipcRenderer.invoke('stop-recording', cursorConfig),
+  stopRecording: (config: {
+    cursorConfig: CursorConfig;
+    zoomConfig?: ZoomConfig;
+    mouseEffectsConfig?: MouseEffectsConfig;
+  }): Promise<{ success: boolean; outputPath: string }> =>
+    ipcRenderer.invoke('stop-recording', config),
 
   getRecordingState: (): Promise<RecordingState> =>
     ipcRenderer.invoke('get-recording-state'),

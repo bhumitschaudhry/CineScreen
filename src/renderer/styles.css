@@ -13,7 +13,7 @@ body {
 }
 
 .container {
-  max-width: 500px;
+  max-width: 600px;
   margin: 0 auto;
   background: white;
   border-radius: 12px;
@@ -185,6 +185,39 @@ h2 {
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 14px;
+}
+
+.setting-item input[type="color"] {
+  width: 60px;
+  height: 35px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.setting-item input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+  cursor: pointer;
+}
+
+.setting-item label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.setting-item > label:not(:has(input[type="checkbox"])) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.setting-item > label:not(:has(input[type="checkbox"])) span {
+  font-weight: normal;
+  color: #667eea;
+  font-size: 13px;
 }
 
 .path-selector {

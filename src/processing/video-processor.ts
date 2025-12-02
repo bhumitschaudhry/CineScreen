@@ -3,10 +3,10 @@ import { join, dirname } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import type { MouseEvent, CursorConfig, MouseEffectsConfig, ZoomConfig } from '../types';
 import { smoothMouseMovement, interpolateMousePositions } from './effects';
-import { generateCursorSVG, saveCursorToFile } from './cursor-renderer';
+import { getCursorAssetFilePath } from './cursor-renderer';
 import { getFfmpegPath } from '../utils/ffmpeg-path';
-import { createCursorOverlayFilter, combineFilters } from './ffmpeg-filters';
-import { ensureCursorPNG, getVideoDimensions } from './video-utils';
+import { createCursorOverlayFilter, createMouseEffectsFilter, combineFilters } from './ffmpeg-filters';
+import { getVideoDimensions } from './video-utils';
 import { generateAllMouseEffects } from './mouse-effects';
 import { generateZoomRegions } from './zoom-tracker';
 import { generateZoomFilter } from './zoom-processor';
@@ -27,98 +27,179 @@ export class VideoProcessor {
    * Process video and overlay cursor
    */
   async processVideo(options: VideoProcessingOptions): Promise<string> {
-    const {
-      inputVideo,
-      outputVideo,
-      mouseEvents,
-      cursorConfig,
-      frameRate,
-      videoDuration,
-    } = options;
-
-    // Ensure output directory exists
-    const outputDir = dirname(outputVideo);
-    if (!existsSync(outputDir)) {
-      mkdirSync(outputDir, { recursive: true });
-    }
-
-    // Apply smoothing to mouse events
-    const smoothedEvents = smoothMouseMovement(
-      mouseEvents,
-      cursorConfig.smoothing
-    );
-
-    // Interpolate mouse positions for all frames
-    const interpolatedEvents = interpolateMousePositions(
-      smoothedEvents,
-      frameRate,
-      videoDuration
-    );
-
-    // Get video dimensions for zoom calculations
-    const videoDimensions = await getVideoDimensions(inputVideo);
-
-    // Generate zoom regions if zoom is enabled
-    let zoomFilter = '';
-    if (options.zoomConfig?.enabled) {
-      const zoomRegions = generateZoomRegions(
-        interpolatedEvents,
-        videoDimensions,
-        options.zoomConfig,
+    try {
+      const {
+        inputVideo,
+        outputVideo,
+        mouseEvents,
+        cursorConfig: initialCursorConfig,
         frameRate,
-        videoDuration
-      );
-      zoomFilter = generateZoomFilter(zoomRegions, videoDimensions, frameRate);
-    }
+        videoDuration,
+      } = options;
+      
+      // Make cursorConfig mutable for default assignment
+      let cursorConfig = initialCursorConfig;
 
-    // Generate mouse effects if configured
-    const effectFrames = options.mouseEffectsConfig
-      ? generateAllMouseEffects(interpolatedEvents, options.mouseEffectsConfig, frameRate)
-      : [];
+      // Validate inputs
+      if (!inputVideo || !existsSync(inputVideo)) {
+        throw new Error(`Input video file not found: ${inputVideo}`);
+      }
 
-    // Generate cursor image
-    const cursorSVG = generateCursorSVG(cursorConfig);
-    const tempCursorPath = join(outputDir, 'temp_cursor.svg');
-    saveCursorToFile(tempCursorPath, cursorSVG);
+      if (!outputVideo) {
+        throw new Error('Output video path is required');
+      }
 
-    // Convert SVG to PNG if needed (FFmpeg can handle SVG with filters)
-    // For simplicity, we'll use a PNG approach
-    const cursorPNGPath = await ensureCursorPNG(
-      tempCursorPath,
-      cursorConfig.size
-    );
+      if (!mouseEvents || mouseEvents.length === 0) {
+        console.warn('No mouse events provided, processing video without cursor overlay');
+      }
 
-    // Create FFmpeg filter complex
-    const filters: string[] = [];
-    
-    // Apply zoom first if enabled
-    if (zoomFilter) {
-      filters.push(zoomFilter);
-    }
-    
-    // Create cursor overlay filter (adjust input label based on zoom)
-    const cursorInputLabel = zoomFilter ? '[zoomed]' : '[0:v]';
-    const cursorFilter = createCursorOverlayFilter(
-      interpolatedEvents,
-      cursorConfig.size
-    );
-    // Replace input label in cursor filter
-    const adjustedCursorFilter = cursorFilter.replace('[0:v]', cursorInputLabel);
-    filters.push(adjustedCursorFilter);
+      // Validate and provide default cursor config
+      if (!cursorConfig) {
+        console.warn('No cursor config provided, using defaults');
+        cursorConfig = {
+          size: 24,
+          shape: 'arrow',
+          smoothing: 0.5,
+          color: '#000000',
+        };
+      }
 
-    // Note: Mouse effects (click circles, trails, rings) would be added here
-    // For now, we'll use the cursor overlay. Full effect rendering would require
-    // generating effect frames as separate video streams or using draw filters
-    
-    // Combine all filters
-    const filterComplex = combineFilters(filters);
+      // Ensure output directory exists
+      const outputDir = dirname(outputVideo);
+      try {
+        if (!existsSync(outputDir)) {
+          mkdirSync(outputDir, { recursive: true });
+        }
+      } catch (error) {
+        throw new Error(`Failed to create output directory: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      // Apply smoothing to mouse events
+      let smoothedEvents: MouseEvent[] = [];
+      try {
+        smoothedEvents = smoothMouseMovement(
+          mouseEvents,
+          cursorConfig.smoothing
+        );
+      } catch (error) {
+        console.warn('Error smoothing mouse events, using original events:', error);
+        smoothedEvents = mouseEvents;
+      }
+
+      // Interpolate mouse positions for all frames
+      let interpolatedEvents: MouseEvent[] = [];
+      try {
+        interpolatedEvents = interpolateMousePositions(
+          smoothedEvents,
+          frameRate,
+          videoDuration
+        );
+      } catch (error) {
+        throw new Error(`Failed to interpolate mouse positions: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      // Get video dimensions for zoom calculations
+      let videoDimensions;
+      try {
+        videoDimensions = await getVideoDimensions(inputVideo);
+      } catch (error) {
+        throw new Error(`Failed to get video dimensions: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      // Generate zoom regions if zoom is enabled
+      let zoomFilter = '';
+      if (options.zoomConfig?.enabled) {
+        try {
+          const zoomRegions = generateZoomRegions(
+            interpolatedEvents,
+            videoDimensions,
+            options.zoomConfig,
+            frameRate,
+            videoDuration
+          );
+          zoomFilter = generateZoomFilter(zoomRegions, videoDimensions, frameRate);
+        } catch (error) {
+          console.warn('Error generating zoom filter, continuing without zoom:', error);
+          zoomFilter = '';
+        }
+      }
+
+      // Generate mouse effects if configured
+      let effectFrames: any[] = [];
+      if (options.mouseEffectsConfig) {
+        try {
+          effectFrames = generateAllMouseEffects(interpolatedEvents, options.mouseEffectsConfig, frameRate);
+        } catch (error) {
+          console.warn('Error generating mouse effects, continuing without effects:', error);
+          effectFrames = [];
+        }
+      }
+
+      // Get cursor asset path (SVG from assets directory)
+      let cursorImagePath: string;
+      try {
+        const assetPath = getCursorAssetFilePath(cursorConfig.shape);
+        if (assetPath && existsSync(assetPath)) {
+          cursorImagePath = assetPath;
+        } else {
+          throw new Error(`Cursor asset not found for shape: ${cursorConfig.shape}`);
+        }
+      } catch (error) {
+        throw new Error(`Failed to get cursor asset: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      // Create FFmpeg filter complex
+      let filterComplex: string;
+      try {
+        const filters: string[] = [];
+        
+        // Apply zoom first if enabled
+        if (zoomFilter) {
+          filters.push(zoomFilter);
+        }
+        
+        // Determine input label for cursor (after zoom if enabled)
+        const cursorInputLabel = zoomFilter ? '[zoomed]' : '[0:v]';
+        
+        // Create cursor overlay filter
+        const cursorFilter = createCursorOverlayFilter(
+          interpolatedEvents,
+          cursorConfig.size
+        );
+        // Replace input label in cursor filter
+        let adjustedCursorFilter = cursorFilter.replace('[0:v]', cursorInputLabel);
+        
+        // If we have effects, change cursor output to intermediate label
+        if (effectFrames.length > 0) {
+          adjustedCursorFilter = adjustedCursorFilter.replace('[out]', '[cursored]');
+        }
+        
+        filters.push(adjustedCursorFilter);
+        
+        // Create mouse effects filter if effects are enabled
+        if (effectFrames.length > 0) {
+          const effectsFilter = createMouseEffectsFilter(
+            effectFrames,
+            frameRate,
+            '[cursored]'
+          );
+          if (effectsFilter && effectsFilter.trim().length > 0) {
+            filters.push(effectsFilter);
+          }
+        }
+        
+        // Combine all filters
+        filterComplex = combineFilters(filters);
+      } catch (error) {
+        throw new Error(`Failed to create FFmpeg filter: ${error instanceof Error ? error.message : String(error)}`);
+      }
 
     // Build FFmpeg command
     const args = [
       '-i',
       inputVideo,
       '-i',
-      cursorPNGPath,
+      cursorImagePath,
       '-filter_complex',
       filterComplex,
       '-map',
@@ -139,38 +220,64 @@ export class VideoProcessor {
       outputVideo,
     ];
 
-    return new Promise((resolve, reject) => {
-      let ffmpegPath: string;
-      try {
-        // Get the resolved FFmpeg path using the utility function
-        ffmpegPath = getFfmpegPath();
-      } catch (error) {
-        reject(error instanceof Error ? error : new Error(String(error)));
-        return;
-      }
-
-      const ffmpegProcess = spawn(ffmpegPath, args);
-
-      let errorOutput = '';
-
-      ffmpegProcess.stderr?.on('data', (data) => {
-        errorOutput += data.toString();
-      });
-
-      ffmpegProcess.on('close', (code) => {
-        if (code === 0) {
-          resolve(outputVideo);
-        } else {
-          reject(
-            new Error(`FFmpeg processing failed with code ${code}: ${errorOutput}`)
-          );
+      return new Promise((resolve, reject) => {
+        let ffmpegPath: string;
+        try {
+          // Get the resolved FFmpeg path using the utility function
+          ffmpegPath = getFfmpegPath();
+        } catch (error) {
+          reject(new Error(`Failed to get FFmpeg path: ${error instanceof Error ? error.message : String(error)}`));
+          return;
         }
-      });
 
-      ffmpegProcess.on('error', (error) => {
-        reject(new Error(`Failed to start FFmpeg: ${error.message}`));
+        const ffmpegProcess = spawn(ffmpegPath, args);
+
+        let errorOutput = '';
+        let hasResolved = false;
+
+        ffmpegProcess.stderr?.on('data', (data) => {
+          errorOutput += data.toString();
+        });
+
+        ffmpegProcess.on('close', (code) => {
+          if (hasResolved) return;
+          hasResolved = true;
+          
+          if (code === 0) {
+            // Verify output file exists
+            if (existsSync(outputVideo)) {
+              resolve(outputVideo);
+            } else {
+              reject(new Error(`FFmpeg completed but output file not found: ${outputVideo}`));
+            }
+          } else {
+            const errorMessage = errorOutput.length > 500 
+              ? errorOutput.substring(0, 500) + '...'
+              : errorOutput;
+            reject(
+              new Error(`FFmpeg processing failed with code ${code}: ${errorMessage}`)
+            );
+          }
+        });
+
+        ffmpegProcess.on('error', (error) => {
+          if (hasResolved) return;
+          hasResolved = true;
+          reject(new Error(`Failed to start FFmpeg: ${error.message}`));
+        });
+
+        // Timeout after 10 minutes
+        setTimeout(() => {
+          if (!hasResolved) {
+            hasResolved = true;
+            ffmpegProcess.kill();
+            reject(new Error('FFmpeg processing timed out after 10 minutes'));
+          }
+        }, 600000);
       });
-    });
+    } catch (error) {
+      throw new Error(`Video processing failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
 }

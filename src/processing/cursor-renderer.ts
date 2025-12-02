@@ -1,18 +1,74 @@
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { app } from 'electron';
 import type { CursorConfig } from '../types';
+
+// Debug logging helper - will be set by main process
+let sendLogToRenderer: ((message: string) => void) | null = null;
+export const setLogSender = (sender: (message: string) => void) => {
+  sendLogToRenderer = sender;
+};
+
+const DEBUG = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
+const debugLog = (...args: unknown[]) => {
+  const message = args.map(arg => 
+    typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+  ).join(' ');
+  const logEntry = `[CursorRenderer] ${message}`;
+  
+  if (DEBUG) {
+    console.log(logEntry);
+  }
+  
+  // Send log to renderer if available
+  if (sendLogToRenderer) {
+    sendLogToRenderer(logEntry);
+  }
+};
 
 /**
  * Local cursor assets directory
  */
 function getAssetsDir(): string {
-  // In development, use src/assets; in production, use app resources
-  const isDev = process.env.NODE_ENV === 'development' || !app?.isPackaged;
-  if (isDev) {
-    return join(__dirname, '../../src/assets');
+  // Try to get app from electron, but handle case where it's not available
+  let app: any;
+  try {
+    app = require('electron').app;
+  } catch {
+    // Electron not available, assume development
   }
-  return join(app?.getPath('exe') || process.cwd(), '../resources/assets');
+  
+  const isDev = process.env.NODE_ENV === 'development' || !app?.isPackaged;
+  debugLog('Getting assets directory, isDev:', isDev, '__dirname:', __dirname, 'cwd:', process.cwd());
+  
+  if (isDev) {
+    // In development, try multiple possible paths
+    // __dirname in compiled code will be dist/main/processing or dist/processing
+    const possiblePaths = [
+      join(__dirname, '../../src/assets'), // From dist/main/processing
+      join(__dirname, '../../../src/assets'), // From dist/processing
+      join(process.cwd(), 'src/assets'), // From project root
+    ];
+    
+    debugLog('Trying possible asset paths:', possiblePaths);
+    
+    for (const path of possiblePaths) {
+      debugLog('Checking path:', path, 'exists:', existsSync(path));
+      if (existsSync(path)) {
+        debugLog('Found assets directory at:', path);
+        return path;
+      }
+    }
+    
+    // Fallback to project root
+    const fallbackPath = join(process.cwd(), 'src/assets');
+    debugLog('Using fallback path:', fallbackPath);
+    return fallbackPath;
+  }
+  
+  // In production, use app resources
+  const prodPath = join(app?.getPath('exe') || process.cwd(), '../resources/assets');
+  debugLog('Using production path:', prodPath);
+  return prodPath;
 }
 
 /**
@@ -38,12 +94,17 @@ const CURSOR_SHAPE_MAP: Record<string, string> = {
  */
 export function getCursorAssetPath(shape: string): string | null {
   const assetFileName = CURSOR_SHAPE_MAP[shape] || CURSOR_SHAPE_MAP.arrow;
-  const assetPath = join(getAssetsDir(), assetFileName);
+  const assetsDir = getAssetsDir();
+  const assetPath = join(assetsDir, assetFileName);
+  
+  debugLog('Getting cursor asset for shape:', shape, 'file:', assetFileName, 'path:', assetPath);
   
   if (existsSync(assetPath)) {
+    debugLog('Cursor asset found at:', assetPath);
     return assetPath;
   }
   
+  debugLog('Cursor asset not found at:', assetPath);
   return null;
 }
 
@@ -109,7 +170,17 @@ function loadAndScaleSVGCursor(assetPath: string, targetSize: number): string {
  * Generate SVG cursor based on shape and size
  * Loads from local assets if available, otherwise generates SVG
  */
-export function generateCursorSVG(config: CursorConfig): string {
+export function generateCursorSVG(config: CursorConfig | undefined): string {
+  // Provide default config if undefined
+  if (!config) {
+    config = {
+      size: 24,
+      shape: 'arrow',
+      smoothing: 0.5,
+      color: '#000000',
+    };
+  }
+  
   const { size, shape, color = '#000000' } = config;
 
   // Try to load from local assets first
@@ -279,7 +350,41 @@ export function saveCursorToFile(filePath: string, svg: string): void {
  * Get cursor asset file path (for direct file access if needed)
  */
 export function getCursorAssetFilePath(shape: string): string | null {
-  return getCursorAssetPath(shape);
+  debugLog('getCursorAssetFilePath called for shape:', shape);
+  const path = getCursorAssetPath(shape);
+  
+  if (path) {
+    // Verify the file actually exists
+    if (existsSync(path)) {
+      debugLog('Cursor asset file verified at:', path);
+      return path;
+    } else {
+      debugLog('WARNING: Cursor asset path resolved but file does not exist:', path);
+      // Try to find it in common locations
+      const assetFileName = CURSOR_SHAPE_MAP[shape] || CURSOR_SHAPE_MAP.arrow;
+      const fallbackPaths = [
+        join(process.cwd(), 'src/assets', assetFileName),
+        join(__dirname, '../../src/assets', assetFileName),
+        join(__dirname, '../../../src/assets', assetFileName),
+      ];
+      
+      debugLog('Trying fallback paths:', fallbackPaths);
+      
+      for (const fallbackPath of fallbackPaths) {
+        debugLog('Checking fallback path:', fallbackPath, 'exists:', existsSync(fallbackPath));
+        if (existsSync(fallbackPath)) {
+          debugLog('Found cursor asset at fallback path:', fallbackPath);
+          return fallbackPath;
+        }
+      }
+      
+      debugLog('ERROR: Could not find cursor asset in any fallback path');
+    }
+  } else {
+    debugLog('ERROR: getCursorAssetPath returned null for shape:', shape);
+  }
+  
+  return null;
 }
 
 /**
