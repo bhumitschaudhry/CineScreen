@@ -67,3 +67,4 @@ export async function ensureCursorVisible(): Promise<void> {
   }
 }
 
+

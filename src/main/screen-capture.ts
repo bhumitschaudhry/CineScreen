@@ -220,23 +220,25 @@ export class ScreenCapture {
       throw new Error('No recording in progress');
     }
 
+    // Store reference to process and output path before they might be cleared
+    const process = this.recordingProcess;
+    const outputPath = this.outputPath;
+    let isResolved = false;
+
     return new Promise((resolve, reject) => {
       logger.info('Stopping FFmpeg recording...');
-      // Use SIGINT as the primary shutdown mechanism
-      // SIGINT (Ctrl+C) is reliable for non-interactive processes
-      if (this.recordingProcess) {
-        try {
-          this.recordingProcess.kill('SIGINT');
-          logger.debug('Sent SIGINT to FFmpeg');
-        } catch (error) {
-          logger.warn('Could not send SIGINT:', error);
-        }
-      }
-
-      let isResolved = false;
       
-      this.recordingProcess?.on('close', async (code) => {
+      // Declare timeout variables so they can be accessed in handlers
+      let sigintTimeout: NodeJS.Timeout;
+      let finalTimeout: NodeJS.Timeout;
+      
+      // Set up event handlers BEFORE sending signal to avoid race conditions
+      const handleClose = async (code: number | null) => {
         if (isResolved) return; // Prevent double resolution
+        
+        // Clean up timeouts
+        if (sigintTimeout) clearTimeout(sigintTimeout);
+        if (finalTimeout) clearTimeout(finalTimeout);
         
         logger.debug('FFmpeg process closed with code:', code);
         this.isRecording = false;
@@ -258,16 +260,16 @@ export class ScreenCapture {
             // Wait for file to stabilize (FFmpeg might still be writing)
             // Wait up to 10 seconds for file to stabilize
             // MKV format is more forgiving, but we still want to ensure it's finalized
-            await waitForFileStable(this.outputPath, wasKilled ? 10000 : 5000, 100);
+            await waitForFileStable(outputPath, wasKilled ? 10000 : 5000, 100);
             logger.debug('File size stabilized, validating video file...');
             
             // Validate the video file is complete with retries
             // This will throw if the file is still invalid after all retries
             // Increased retry interval to 1000ms to give file system more time
-            await validateVideoFile(this.outputPath, 5, 1000);
-            logger.info('Video file validated successfully, output:', this.outputPath);
+            await validateVideoFile(outputPath, 5, 1000);
+            logger.info('Video file validated successfully, output:', outputPath);
             isResolved = true;
-            resolve(this.outputPath);
+            resolve(outputPath);
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             const errorDetails = error instanceof Error ? error.stack : JSON.stringify(error);
@@ -278,11 +280,12 @@ export class ScreenCapture {
             // (MKV format is more forgiving and might be partially readable)
             if (wasKilled) {
               logger.warn('File was force-killed and validation failed, but proceeding with output path');
-              logger.debug('File path:', this.outputPath);
+              logger.debug('File path:', outputPath);
               isResolved = true;
-              resolve(this.outputPath);
+              resolve(outputPath);
             } else {
               // Don't proceed with an invalid file from graceful shutdown
+              isResolved = true;
               reject(new Error(
                 `Failed to finalize recording: ${errorMessage}. ` +
                 `The video file may be incomplete.`
@@ -291,25 +294,137 @@ export class ScreenCapture {
           }
         } else {
           logger.error('Recording stopped with error code:', code);
+          isResolved = true;
           reject(new Error(`Recording stopped with error code ${code}`));
         }
-      });
+      };
 
-      // Force kill after timeout if it doesn't stop gracefully
-      setTimeout(() => {
-        if (this.recordingProcess && !isResolved) {
-          logger.warn('Force killing FFmpeg process (timeout)');
-          this.recordingProcess.kill('SIGTERM'); // Try SIGTERM first (more graceful)
-          
-          // If still running after 30 more seconds, use SIGKILL
-          setTimeout(() => {
-            if (this.recordingProcess && !isResolved) {
-              logger.warn('Force killing FFmpeg process with SIGKILL');
-              this.recordingProcess.kill('SIGKILL');
-            }
-          }, 30000);
+      const handleError = (error: Error) => {
+        if (isResolved) return;
+        logger.error('FFmpeg process error during stop:', error);
+        // Don't reject here - let the close handler deal with it
+        // But if process is already dead, we might need to handle it
+        if (!process.killed) {
+          logger.warn('Process error but still alive, attempting to kill');
+          try {
+            process.kill('SIGTERM');
+          } catch (killError) {
+            logger.error('Failed to kill process after error:', killError);
+          }
         }
-      }, 60000); // Timeout to 60 seconds to allow FFmpeg to finish writing
+      };
+
+      // Set up event handlers BEFORE checking process state
+      // This ensures we catch the close event even if process is already closing
+      process.once('close', handleClose);
+      process.once('error', handleError);
+
+      // Check if process is still alive before sending signal
+      if (process.killed) {
+        logger.warn('Process already killed, waiting for close event');
+        // Process might already be closing, just wait for the close event
+        // The close handler will resolve the promise
+        // Set a timeout in case the close event never fires
+        setTimeout(() => {
+          if (!isResolved) {
+            logger.warn('Process was killed but close event never fired, resolving anyway');
+            this.isRecording = false;
+            this.recordingProcess = undefined;
+            isResolved = true;
+            // Give file a moment to be written
+            setTimeout(async () => {
+              try {
+                await waitForFileStable(outputPath, 5000, 100);
+                resolve(outputPath);
+              } catch (error) {
+                logger.warn('File validation failed, but proceeding:', error);
+                resolve(outputPath);
+              }
+            }, 2000);
+          }
+        }, 5000);
+        return;
+      }
+
+      // Use SIGINT as the primary shutdown mechanism
+      // SIGINT (Ctrl+C) is reliable for non-interactive processes
+      try {
+        process.kill('SIGINT');
+        logger.debug('Sent SIGINT to FFmpeg, PID:', process.pid);
+      } catch (error) {
+        logger.warn('Could not send SIGINT:', error);
+        // If we can't send SIGINT, try SIGTERM
+        try {
+          process.kill('SIGTERM');
+          logger.debug('Sent SIGTERM to FFmpeg as fallback');
+        } catch (termError) {
+          logger.error('Could not send SIGTERM either:', termError);
+          // Last resort: SIGKILL
+          try {
+            process.kill('SIGKILL');
+            logger.debug('Sent SIGKILL to FFmpeg as last resort');
+          } catch (killError) {
+            logger.error('Could not kill process:', killError);
+            isResolved = true;
+            reject(new Error('Failed to stop FFmpeg process'));
+            return;
+          }
+        }
+      }
+
+      // Shorter timeout for initial response (5 seconds)
+      // If FFmpeg doesn't respond to SIGINT within 5 seconds, escalate to SIGTERM
+      sigintTimeout = setTimeout(() => {
+        if (process && !process.killed && !isResolved) {
+          logger.warn('FFmpeg did not respond to SIGINT within 5 seconds, trying SIGTERM');
+          try {
+            process.kill('SIGTERM');
+          } catch (error) {
+            logger.error('Could not send SIGTERM:', error);
+          }
+        }
+      }, 5000);
+
+      // Final timeout - force kill after 15 seconds total
+      finalTimeout = setTimeout(() => {
+        if (process && !process.killed && !isResolved) {
+          logger.warn('Force killing FFmpeg process with SIGKILL (final timeout)');
+          try {
+            process.kill('SIGKILL');
+            // After SIGKILL, give it a moment then resolve anyway
+            setTimeout(() => {
+              if (!isResolved) {
+                logger.warn('Process did not close after SIGKILL, resolving anyway');
+                // Clean up and resolve with the file path
+                this.isRecording = false;
+                this.recordingProcess = undefined;
+                isResolved = true;
+                // Give file a moment to be written
+                setTimeout(async () => {
+                  try {
+                    await waitForFileStable(outputPath, 5000, 100);
+                    resolve(outputPath);
+                  } catch (error) {
+                    logger.warn('File validation failed after force kill, but proceeding:', error);
+                    resolve(outputPath);
+                  }
+                }, 2000);
+              }
+            }, 2000);
+          } catch (error) {
+            logger.error('Could not send SIGKILL:', error);
+            // Even if we can't kill it, resolve after a delay
+            setTimeout(() => {
+              if (!isResolved) {
+                this.isRecording = false;
+                this.recordingProcess = undefined;
+                isResolved = true;
+                resolve(outputPath);
+              }
+            }, 2000);
+          }
+        }
+      }, 15000); // 15 seconds total timeout
     });
   }
 
