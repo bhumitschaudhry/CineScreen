@@ -6,75 +6,64 @@ import { createLogger } from '../utils/logger';
 const logger = createLogger('VideoUtils');
 
 /**
- * Ensure cursor is available as PNG
- * Uses FFmpeg to convert SVG to PNG if needed
+ * Get the main screen dimensions in logical points
+ * On Retina displays, this returns the logical resolution (e.g., 1440x900)
+ * rather than the physical resolution (e.g., 2880x1800)
  */
-export async function ensureCursorPNG(
-  svgPath: string,
-  size: number
-): Promise<string> {
-  const pngPath = svgPath.replace('.svg', '.png');
-
-  if (existsSync(pngPath)) {
-    return pngPath;
-  }
-
-  // Use FFmpeg to convert SVG to PNG
+export async function getScreenDimensions(): Promise<{
+  width: number;
+  height: number;
+}> {
+  const { exec } = await import('child_process');
+  const { promisify } = await import('util');
+  const execAsync = promisify(exec);
+  
   try {
-    const args = [
-      '-i',
-      svgPath,
-      '-vf',
-      `scale=${size}:${size}`,
-      '-frames:v',
-      '1',
-      '-y',
-      pngPath,
-    ];
-
-    await new Promise<void>((resolve, reject) => {
-      let ffmpegPath: string;
-      try {
-        // Get the resolved FFmpeg path using the utility function
-        ffmpegPath = getFfmpegPath();
-      } catch (error) {
-        reject(error instanceof Error ? error : new Error(String(error)));
-        return;
-      }
-
-      const ffmpegProcess = spawn(ffmpegPath, args);
-      let errorOutput = '';
-
-      ffmpegProcess.stderr?.on('data', (data) => {
-        errorOutput += data.toString();
-      });
-
-      ffmpegProcess.on('close', (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error(`FFmpeg conversion failed: ${errorOutput}`));
-        }
-      });
-
-      ffmpegProcess.on('error', (error) => {
-        reject(error);
-      });
-    });
-
-    return pngPath;
-  } catch (error) {
-    // If FFmpeg conversion fails, try alternative method
-    try {
-      const { convertSVGToPNG } = await import('./cursor-renderer');
-      await convertSVGToPNG(svgPath, pngPath, size);
-      return pngPath;
-    } catch (error2) {
-      // Last resort: return SVG and hope FFmpeg can handle it
-      logger.warn('Could not convert SVG to PNG, using SVG directly');
-      return svgPath;
+    // Use AppleScript to get screen bounds (same coordinate system as mouse position)
+    const script = `
+      tell application "Finder"
+        set screenSize to bounds of window of desktop
+        return (item 3 of screenSize) & "," & (item 4 of screenSize)
+      end tell
+    `;
+    const { stdout } = await execAsync(`osascript -e '${script}'`);
+    const [width, height] = stdout.trim().split(',').map(Number);
+    
+    if (width > 0 && height > 0) {
+      logger.debug('Got screen dimensions via AppleScript:', { width, height });
+      return { width, height };
     }
+  } catch (error) {
+    logger.debug('AppleScript screen dimensions failed:', error);
   }
+  
+  // Fallback: try using system_profiler
+  try {
+    const { stdout } = await execAsync("system_profiler SPDisplaysDataType | grep Resolution | head -1");
+    const match = stdout.match(/(\d+)\s*x\s*(\d+)/);
+    if (match) {
+      // This returns physical pixels, need to check if it's Retina
+      let width = parseInt(match[1], 10);
+      let height = parseInt(match[2], 10);
+      
+      // Check for Retina scaling
+      const retinaMatch = stdout.match(/Retina/i);
+      if (retinaMatch) {
+        // Retina display - divide by 2 for logical coordinates
+        width = Math.round(width / 2);
+        height = Math.round(height / 2);
+      }
+      
+      logger.debug('Got screen dimensions via system_profiler:', { width, height });
+      return { width, height };
+    }
+  } catch (error) {
+    logger.debug('system_profiler screen dimensions failed:', error);
+  }
+  
+  // Last resort fallback: assume common resolution
+  logger.warn('Could not detect screen dimensions, using default 1920x1080');
+  return { width: 1920, height: 1080 };
 }
 
 /**

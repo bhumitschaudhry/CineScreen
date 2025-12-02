@@ -22,6 +22,8 @@ declare global {
       selectOutputPath: () => Promise<string | null>;
       onDebugLog: (callback: (message: string) => void) => void;
       removeDebugLogListener: () => void;
+      onProcessingProgress: (callback: (data: { percent: number; message: string }) => void) => void;
+      removeProcessingProgressListener: () => void;
     };
   }
 }
@@ -80,7 +82,13 @@ const highlightRingColorPicker = document.getElementById('highlight-ring-color-p
 const highlightRingPulseSlider = document.getElementById('highlight-ring-pulse-speed') as HTMLInputElement;
 const highlightRingPulseValue = document.getElementById('highlight-ring-pulse-speed-value') as HTMLSpanElement;
 
+// Progress bar elements
+const processingProgress = document.getElementById('processing-progress') as HTMLDivElement;
+const progressFill = document.getElementById('progress-fill') as HTMLDivElement;
+const progressText = document.getElementById('progress-text') as HTMLSpanElement;
+
 let isRecording = false;
+let isProcessing = false;
 let outputPath: string | null = null;
 let debugLogsVisible = false;
 const maxLogEntries = 500; // Limit log entries to prevent memory issues
@@ -325,6 +333,12 @@ stopBtn.addEventListener('click', async () => {
   try {
     statusText.textContent = 'Stopping recording...';
     stopBtn.disabled = true;
+    isProcessing = true;
+    
+    // Show progress bar
+    processingProgress.style.display = 'block';
+    progressFill.style.width = '0%';
+    progressText.textContent = 'Processing video...';
 
     const result = await window.electronAPI.stopRecording({
       cursorConfig,
@@ -333,7 +347,12 @@ stopBtn.addEventListener('click', async () => {
     });
 
     isRecording = false;
+    isProcessing = false;
     updateUI();
+    
+    // Hide progress bar
+    processingProgress.style.display = 'none';
+    
     statusText.textContent = `Recording saved to: ${result.outputPath}`;
     recordingStatus.classList.remove('recording');
 
@@ -344,6 +363,8 @@ stopBtn.addEventListener('click', async () => {
     console.error('Error stopping recording:', error);
     alert(`Failed to stop recording: ${error instanceof Error ? error.message : 'Unknown error'}`);
     stopBtn.disabled = false;
+    isProcessing = false;
+    processingProgress.style.display = 'none';
     statusText.textContent = 'Failed to stop recording';
   }
 });
@@ -437,6 +458,14 @@ clearDebugBtn.addEventListener('click', () => {
 // Set up debug log listener
 window.electronAPI.onDebugLog((message: string) => {
   addDebugLog(message);
+});
+
+// Set up processing progress listener
+window.electronAPI.onProcessingProgress((data: { percent: number; message: string }) => {
+  if (isProcessing) {
+    progressFill.style.width = `${data.percent}%`;
+    progressText.textContent = `${data.message} (${data.percent}%)`;
+  }
 });
 
 // Initialize on load

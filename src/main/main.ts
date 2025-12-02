@@ -241,6 +241,10 @@ ipcMain.handle('stop-recording', async (_, config: {
       mouseEffectsConfig,
       frameRate: 30,
       videoDuration: recordingDuration,
+      onProgress: (percent, message) => {
+        logger.debug(`Processing progress: ${percent}% - ${message}`);
+        mainWindow?.webContents.send('processing-progress', { percent, message });
+      },
     });
 
     // Clean up temp files

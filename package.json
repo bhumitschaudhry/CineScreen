@@ -37,7 +37,8 @@
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.6",
     "@ffmpeg/util": "^0.12.1",
-    "ffmpeg-static": "^5.2.0"
+    "ffmpeg-static": "^5.2.0",
+    "sharp": "^0.34.5"
   },
   "build": {
     "appId": "com.macscreenrecorder.app",
@@ -67,15 +68,18 @@
       {
         "from": "src/assets",
         "to": "assets",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "asarUnpack": [
-      "node_modules/ffmpeg-static/**/*"
+      "node_modules/ffmpeg-static/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*"
     ],
     "directories": {
       "output": "release"
     }
   }
 }
-

@@ -31,5 +31,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeDebugLogListener: () => {
     ipcRenderer.removeAllListeners('debug-log');
   },
+
+  onProcessingProgress: (callback: (data: { percent: number; message: string }) => void) => {
+    ipcRenderer.on('processing-progress', (_event, data) => callback(data));
+  },
+
+  removeProcessingProgressListener: () => {
+    ipcRenderer.removeAllListeners('processing-progress');
+  },
 });
 
