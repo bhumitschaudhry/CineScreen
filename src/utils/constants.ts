@@ -78,9 +78,8 @@ export const CURSOR_CLICK_ANIMATION_DURATION_MS = 200;
 
 /**
  * Cursor click animation scale down amount (0-1)
- * 0.8 means cursor scales to 80% of original size
  */
-export const CURSOR_CLICK_ANIMATION_SCALE = 0.8;
+export const CURSOR_CLICK_ANIMATION_SCALE = 0.7;
 
 // ========================================
 // Zoom Configuration Constants
