@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,7 +15,7 @@
       color: #e0e0e0;
       overflow: hidden;
     }
-    
+
     /* Ensure content is visible even if JS fails */
     #studio-container {
       display: flex !important;
@@ -204,7 +205,8 @@
     }
 
     .custom-play-pause-button {
-      display: none; /* Hide the overlay button, using toolbar controls instead */
+      display: none;
+      /* Hide the overlay button, using toolbar controls instead */
     }
 
     #sidebar {
@@ -517,6 +519,7 @@
     }
   </style>
 </head>
+
 <body>
   <noscript>
     <div style="padding: 20px; color: white; background: red;">
@@ -543,21 +546,22 @@
         <div id="video-controls">
           <button id="skip-backward-btn" class="playback-button" title="Skip backward">
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M11 18V6l-8.5 6 8.5 6zm.5-12l8.5 6-8.5 6V6z" fill="currentColor"/>
+              <path d="M11 18V6l-8.5 6 8.5 6zm.5-12l8.5 6-8.5 6V6z" fill="currentColor" />
             </svg>
           </button>
           <button id="play-pause-btn" class="play-button" title="Play/Pause">
             <svg id="play-icon" class="play-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M8 5v14l11-7z" fill="currentColor"/>
+              <path d="M8 5v14l11-7z" fill="currentColor" />
             </svg>
-            <svg id="pause-icon" class="pause-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
-              <rect x="6" y="4" width="4" height="16" fill="currentColor"/>
-              <rect x="14" y="4" width="4" height="16" fill="currentColor"/>
+            <svg id="pause-icon" class="pause-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"
+              style="display: none;">
+              <rect x="6" y="4" width="4" height="16" fill="currentColor" />
+              <rect x="14" y="4" width="4" height="16" fill="currentColor" />
             </svg>
           </button>
           <button id="skip-forward-btn" class="playback-button" title="Skip forward">
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" fill="currentColor"/>
+              <path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" fill="currentColor" />
             </svg>
           </button>
         </div>
@@ -597,6 +601,11 @@
                 <label for="cursor-motion-blur-strength-setting">Blur Strength:</label>
                 <input type="range" id="cursor-motion-blur-strength-setting" min="0" max="100" value="50" step="1">
                 <span id="cursor-motion-blur-strength-value-setting">50</span>%
+              </div>
+              <div class="setting-item">
+                <label for="cursor-frame-offset-setting">Frame Offset:</label>
+                <input type="range" id="cursor-frame-offset-setting" min="-100" max="100" value="0" step="1">
+                <span id="cursor-frame-offset-value-setting">0</span>
               </div>
             </div>
 
@@ -664,11 +673,11 @@
 
   <script>
     // Immediate inline check - runs before module script
-    (function() {
+    (function () {
       console.log('Studio HTML script tag executing');
       console.log('Document ready state:', document.readyState);
       console.log('Body exists:', !!document.body);
-      
+
       // Check if container exists immediately
       setTimeout(() => {
         const container = document.getElementById('studio-container');
@@ -678,12 +687,12 @@
           document.body.innerHTML = '<div style="padding: 20px; color: white; background: red;">ERROR: Studio container element not found. Check console.</div>';
         }
       }, 100);
-      
+
       // Log errors
       window.addEventListener('error', (e) => {
         console.error('Window error:', e.error, e.message, e.filename, e.lineno);
       });
-      
+
       // Log when page fully loads
       window.addEventListener('load', () => {
         console.log('Page fully loaded');
@@ -697,5 +706,5 @@
   </script>
   <script type="module" src="/studio.ts"></script>
 </body>
-</html>
 
+</html>

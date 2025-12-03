@@ -22,7 +22,7 @@ export interface CursorConfig {
   size: number;
   shape: 'arrow' | 'pointer' | 'hand' | 'crosshair';
   color?: string;
-  
+
   // Screen Studio-like features
   animationStyle?: 'slow' | 'mellow' | 'quick' | 'rapid'; // Default: 'mellow'
   motionBlur?: {
@@ -31,6 +31,7 @@ export interface CursorConfig {
   };
   hideWhenStatic?: boolean; // Hide cursor when not moving
   loopPosition?: boolean; // Return cursor to initial position at end
+  frameOffset?: number; // Offset cursor timing by N frames (can be negative)
 }
 
 export interface RecordingState {
@@ -53,25 +54,25 @@ export interface ZoomConfig {
   transitionSpeed: number; // ms (legacy, use animationStyle instead)
   padding: number; // pixels around cursor
   followSpeed: number; // 0-1, how quickly zoom follows mouse (legacy)
-  
+
   // Smoothness settings (Screen Studio-like)
   smoothness?: 'snappy' | 'smooth' | 'cinematic'; // Preset smoothness levels (legacy)
   animationStyle?: 'slow' | 'mellow' | 'quick' | 'rapid'; // Default: 'mellow'
   deadZone?: number; // Pixels - prevents jitter when cursor barely moves (default: 15)
-  
+
   // Motion blur for zoom/panning
   motionBlur?: {
     enabled: boolean;
     strength: number; // 0-1
   };
-  
+
   // Advanced physics controls (Screen Studio-like)
   physics?: {
     tension?: number; // Spring tension (default: 150)
     friction?: number; // Damping/friction (default: 22)
     mass?: number; // Mass/inertia (default: 1.2)
   };
-  
+
   // Automatic zoom based on clicks/actions
   autoZoom?: boolean; // Automatically zoom on clicks (default: true)
 }

@@ -152,8 +152,15 @@ export function renderCursor(
   // Clear canvas
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Get cursor position at timestamp
-  const cursorPos = interpolateCursorPosition(metadata.cursor.keyframes, timestamp);
+  // Apply frame offset if configured
+  // Frame offset shifts the cursor timing: positive = cursor appears earlier (look ahead), negative = cursor appears later (look back)
+  const frameOffset = metadata.cursor.config.frameOffset || 0;
+  const frameRate = metadata.video.frameRate || 30; // Default to 30 fps if not available
+  const frameOffsetMs = (frameOffset / frameRate) * 1000; // Convert frames to milliseconds
+  const adjustedTimestamp = timestamp + frameOffsetMs;
+
+  // Get cursor position at adjusted timestamp
+  const cursorPos = interpolateCursorPosition(metadata.cursor.keyframes, adjustedTimestamp);
   if (!cursorPos) return;
 
   // Calculate uniform scale factor to maintain aspect ratio

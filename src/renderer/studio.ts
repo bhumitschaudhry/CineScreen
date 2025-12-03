@@ -351,6 +351,8 @@ function setupSettingsPanel() {
   const cursorMotionBlurEnabledCheckbox = document.getElementById('cursor-motion-blur-enabled-setting') as HTMLInputElement;
   const cursorMotionBlurStrengthSlider = document.getElementById('cursor-motion-blur-strength-setting') as HTMLInputElement;
   const cursorMotionBlurStrengthValue = document.getElementById('cursor-motion-blur-strength-value-setting') as HTMLSpanElement;
+  const cursorFrameOffsetSlider = document.getElementById('cursor-frame-offset-setting') as HTMLInputElement;
+  const cursorFrameOffsetValue = document.getElementById('cursor-frame-offset-value-setting') as HTMLSpanElement;
 
   const zoomEnabledCheckbox = document.getElementById('zoom-enabled-setting') as HTMLInputElement;
   const zoomLevelSlider = document.getElementById('zoom-level-setting') as HTMLInputElement;
@@ -390,6 +392,11 @@ function setupSettingsPanel() {
     cursorMotionBlurStrengthSlider.value = String(blurStrengthPercent);
     cursorMotionBlurStrengthValue.textContent = String(blurStrengthPercent);
     updateCursorMotionBlurVisibility();
+
+    // Initialize frame offset
+    const frameOffset = metadata.cursor.config.frameOffset || 0;
+    cursorFrameOffsetSlider.value = String(frameOffset);
+    cursorFrameOffsetValue.textContent = String(frameOffset);
   }
 
   if (metadata.zoom.config) {
@@ -450,6 +457,16 @@ function setupSettingsPanel() {
         };
       }
       metadata.cursor.config.motionBlur.strength = strength;
+      renderPreview();
+    }
+  });
+
+  // Frame offset setting
+  cursorFrameOffsetSlider.addEventListener('input', (e) => {
+    const value = (e.target as HTMLInputElement).value;
+    cursorFrameOffsetValue.textContent = value;
+    if (metadata) {
+      metadata.cursor.config.frameOffset = parseInt(value);
       renderPreview();
     }
   });
