@@ -34,7 +34,7 @@ export function createStudioWindow(videoPath: string, metadataPath: string): voi
       nodeIntegration: false,
       contextIsolation: true,
     },
-    title: 'Studio - Mac Screen Recorder',
+    title: 'Studio - CineScreen',
     resizable: true,
     minWidth: 1000,
     minHeight: 600,

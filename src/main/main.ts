@@ -42,7 +42,7 @@ function createWindow(): void {
       nodeIntegration: false,
       contextIsolation: true,
     },
-    title: 'Mac Screen Recorder',
+    title: 'CineScreen',
     resizable: true,
   });
 
