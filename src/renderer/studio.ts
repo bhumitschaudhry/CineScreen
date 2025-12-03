@@ -756,15 +756,15 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
   const clickCount = clicks.length;
   
   // Early exit: if we already have enough keyframes, skip
-  // We expect 2 keyframes per click (before + at click), so check for that
-  if (existingKeyframes >= clickCount * 2) {
+  // We expect 1 keyframe per click, so check for that
+  if (existingKeyframes >= clickCount) {
     logger.debug(`Skipping auto-create: ${existingKeyframes} keyframes already exist for ${clickCount} clicks`);
     return;
   }
   
-  // If there are clicks but very few keyframes (less than half the clicks),
+  // If there are clicks but very few keyframes (less than the number of clicks),
   // auto-create keyframes from clicks
-  if (existingKeyframes < clickCount / 2) {
+  if (existingKeyframes < clickCount) {
     const startTime = performance.now();
     logger.info(`Auto-creating cursor keyframes from ${clickCount} clicks (existing: ${existingKeyframes})`);
     
@@ -793,43 +793,22 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
       });
     }
 
-    // Calculate 7 frames duration in milliseconds
-    const frameDurationMs = (7 / metadata.video.frameRate) * 1000;
     const minKeyframeSpacing = 10; // Minimum spacing between keyframes in milliseconds
-
-    // Track previous click position for the "7 frames before" keyframe
-    let previousClickX = initialX;
-    let previousClickY = initialY;
 
     // Collect all new keyframes first, then deduplicate
     const newKeyframes: CursorKeyframe[] = [];
 
-    // Add keyframes for each click - create two keyframes per click
+    // Add keyframes for each click - just create keyframes at click positions
+    // Smooth motion will be handled by the SmoothPosition2D smoother
     for (let i = 0; i < clicks.length; i++) {
       const click = clicks[i];
       
-      // Keyframe 1: 7 frames before the click, at previous click's position
-      const beforeTimestamp = Math.max(0, click.timestamp - frameDurationMs);
-      
-      // Only create "before" keyframe if it's actually before the click timestamp
-      if (beforeTimestamp < click.timestamp) {
-        newKeyframes.push({
-          timestamp: beforeTimestamp,
-          x: previousClickX,
-          y: previousClickY,
-        });
-      }
-
-      // Keyframe 2: At the click timestamp, at current click's position
+      // Keyframe at the click timestamp, at current click's position
       newKeyframes.push({
         timestamp: click.timestamp,
         x: click.x,
         y: click.y,
       });
-
-      // Update previous click position for next iteration
-      previousClickX = click.x;
-      previousClickY = click.y;
     }
 
     // Add new keyframes to existing ones
