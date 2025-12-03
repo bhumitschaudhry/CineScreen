@@ -99,6 +99,65 @@
       pointer-events: none;
     }
 
+    .custom-play-pause-button {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: rgba(26, 26, 26, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #e0e0e0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 20px auto;
+      transition: all 0.2s ease;
+      opacity: 0.7;
+      pointer-events: auto;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    .custom-play-pause-button:hover {
+      background: rgba(58, 58, 58, 0.9);
+      border-color: rgba(255, 255, 255, 0.25);
+      opacity: 1;
+      transform: scale(1.05);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .custom-play-pause-button:active {
+      transform: scale(0.95);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .custom-play-pause-button svg {
+      width: 24px;
+      height: 24px;
+      display: block;
+      opacity: 0.9;
+    }
+
+    .custom-play-pause-button .play-icon {
+      margin-left: 2px; /* Slight offset for visual centering */
+    }
+
+    .custom-play-pause-button.playing .play-icon {
+      display: none;
+    }
+
+    .custom-play-pause-button.playing .pause-icon {
+      display: block;
+    }
+
+    .custom-play-pause-button:not(.playing) .play-icon {
+      display: block;
+    }
+
+    .custom-play-pause-button:not(.playing) .pause-icon {
+      display: none;
+    }
+
     #sidebar {
       width: 300px;
       background: #1a1a1a;
@@ -426,10 +485,19 @@
     <div id="main-content">
       <div id="video-preview-container">
         <div id="video-preview-wrapper">
-          <video id="video-element" controls></video>
+          <video id="video-element"></video>
           <canvas id="cursor-canvas"></canvas>
           <canvas id="zoom-canvas"></canvas>
         </div>
+        <button id="custom-play-pause-btn" class="custom-play-pause-button">
+          <svg id="play-icon" class="play-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 5v14l11-7z" fill="currentColor"/>
+          </svg>
+          <svg id="pause-icon" class="pause-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
+            <rect x="6" y="4" width="4" height="16" fill="currentColor"/>
+            <rect x="14" y="4" width="4" height="16" fill="currentColor"/>
+          </svg>
+        </button>
       </div>
 
       <div id="sidebar">
@@ -444,8 +512,8 @@
               <h4>Cursor Settings</h4>
               <div class="setting-item">
                 <label for="cursor-size-setting">Size:</label>
-                <input type="range" id="cursor-size-setting" min="10" max="100" value="60">
-                <span id="cursor-size-value-setting">60</span>px
+                <input type="range" id="cursor-size-setting" min="10" max="200" value="100">
+                <span id="cursor-size-value-setting">100</span>px
               </div>
               <div class="setting-item">
                 <label for="cursor-shape-setting">Shape:</label>
@@ -459,6 +527,17 @@
               <div class="setting-item">
                 <label for="cursor-color-setting">Color:</label>
                 <input type="color" id="cursor-color-setting" value="#000000">
+              </div>
+              <div class="setting-item">
+                <label>
+                  <input type="checkbox" id="cursor-motion-blur-enabled-setting">
+                  Motion Blur
+                </label>
+              </div>
+              <div class="setting-item" id="cursor-motion-blur-strength-setting-item" style="display: none;">
+                <label for="cursor-motion-blur-strength-setting">Blur Strength:</label>
+                <input type="range" id="cursor-motion-blur-strength-setting" min="0" max="100" value="50" step="1">
+                <span id="cursor-motion-blur-strength-value-setting">50</span>%
               </div>
             </div>
 

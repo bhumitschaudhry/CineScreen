@@ -3,7 +3,7 @@ import { DEFAULT_FRAME_RATE } from '../utils/constants';
 
 declare global {
   interface Window {
-    electronAPI: {
+    electronAPI?: {
       checkPermissions: () => Promise<{
         screenRecording: boolean;
         accessibility: boolean;
@@ -67,9 +67,11 @@ async function init() {
   setupOpenStudioButton();
 
   // Set default output path
-  outputPath = await window.electronAPI.selectOutputPath();
-  if (outputPath) {
-    outputPathInput.value = outputPath;
+  if (window.electronAPI) {
+    outputPath = await window.electronAPI.selectOutputPath();
+    if (outputPath) {
+      outputPathInput.value = outputPath;
+    }
   }
 }
 
@@ -81,6 +83,10 @@ function setupEventListeners() {
 // Check permissions
 async function checkPermissions() {
   try {
+    if (!window.electronAPI) {
+      console.error('electronAPI not available');
+      return;
+    }
     const permissions = await window.electronAPI.checkPermissions();
     updatePermissionStatus(permissions);
   } catch (error) {
@@ -96,16 +102,14 @@ function updatePermissionStatus(permissions: {
   screenRecordingStatus.textContent = permissions.screenRecording
     ? 'Granted'
     : 'Denied';
-  screenRecordingStatus.className = `status ${
-    permissions.screenRecording ? 'granted' : 'denied'
-  }`;
+  screenRecordingStatus.className = `status ${permissions.screenRecording ? 'granted' : 'denied'
+    }`;
 
   accessibilityStatus.textContent = permissions.accessibility
     ? 'Granted'
     : 'Denied';
-  accessibilityStatus.className = `status ${
-    permissions.accessibility ? 'granted' : 'denied'
-  }`;
+  accessibilityStatus.className = `status ${permissions.accessibility ? 'granted' : 'denied'
+    }`;
 
   const allGranted = permissions.screenRecording && permissions.accessibility;
   requestPermissionsBtn.style.display = allGranted ? 'none' : 'block';
@@ -115,6 +119,10 @@ function updatePermissionStatus(permissions: {
 // Request permissions
 requestPermissionsBtn.addEventListener('click', async () => {
   try {
+    if (!window.electronAPI) {
+      console.error('electronAPI not available');
+      return;
+    }
     await window.electronAPI.requestPermissions();
     // Wait a bit for user to grant permissions
     setTimeout(() => {
@@ -132,6 +140,10 @@ recordBtn.addEventListener('click', async () => {
   }
 
   if (!outputPath) {
+    if (!window.electronAPI) {
+      alert('electronAPI not available');
+      return;
+    }
     outputPath = await window.electronAPI.selectOutputPath();
     if (!outputPath) {
       alert('Please select an output path');
@@ -147,6 +159,10 @@ recordBtn.addEventListener('click', async () => {
   };
 
   try {
+    if (!window.electronAPI) {
+      alert('electronAPI not available');
+      return;
+    }
     statusText.textContent = 'Starting recording...';
     recordBtn.disabled = true;
 
@@ -210,11 +226,19 @@ stopBtn.addEventListener('click', async () => {
     statusText.textContent = 'Stopping recording...';
     stopBtn.disabled = true;
     isProcessing = true;
-    
+
     // Show progress bar
     processingProgress.style.display = 'block';
     progressFill.style.width = '0%';
     progressText.textContent = 'Processing video...';
+
+    if (!window.electronAPI) {
+      alert('electronAPI not available');
+      stopBtn.disabled = false;
+      isProcessing = false;
+      processingProgress.style.display = 'none';
+      return;
+    }
 
     const result = await window.electronAPI.stopRecording({
       cursorConfig,
@@ -225,10 +249,10 @@ stopBtn.addEventListener('click', async () => {
     isRecording = false;
     isProcessing = false;
     updateUI();
-    
+
     // Hide progress bar
     processingProgress.style.display = 'none';
-    
+
     statusText.textContent = `Recording saved to: ${result.outputPath}`;
     recordingStatus.classList.remove('recording');
 
@@ -268,6 +292,10 @@ function updateUI() {
 
 // Select output path
 selectPathBtn.addEventListener('click', async () => {
+  if (!window.electronAPI) {
+    alert('electronAPI not available');
+    return;
+  }
   const path = await window.electronAPI.selectOutputPath();
   if (path) {
     outputPath = path;
@@ -279,7 +307,7 @@ selectPathBtn.addEventListener('click', async () => {
 function addDebugLog(message: string) {
   const entry = document.createElement('div');
   entry.className = 'debug-log-entry';
-  
+
   // Determine log level based on message content
   if (message.toLowerCase().includes('error')) {
     entry.classList.add('error');
@@ -288,18 +316,18 @@ function addDebugLog(message: string) {
   } else {
     entry.classList.add('info');
   }
-  
+
   const timestamp = new Date().toLocaleTimeString();
   entry.textContent = `[${timestamp}] ${message}`;
-  
+
   debugLogContent.appendChild(entry);
-  
+
   // Limit number of log entries
   const entries = debugLogContent.children;
   if (entries.length > maxLogEntries) {
     debugLogContent.removeChild(entries[0]);
   }
-  
+
   // Auto-scroll to bottom
   if (debugLogsVisible) {
     debugLogContainer.scrollTop = debugLogContainer.scrollHeight;
@@ -311,7 +339,7 @@ toggleDebugBtn.addEventListener('click', () => {
   debugLogsVisible = !debugLogsVisible;
   debugLogContainer.style.display = debugLogsVisible ? 'block' : 'none';
   toggleDebugBtn.textContent = debugLogsVisible ? 'Hide Logs' : 'Show Logs';
-  
+
   // Scroll to bottom when showing
   if (debugLogsVisible) {
     setTimeout(() => {
@@ -327,17 +355,19 @@ clearDebugBtn.addEventListener('click', () => {
 });
 
 // Set up debug log listener
-window.electronAPI.onDebugLog((message: string) => {
-  addDebugLog(message);
-});
+if (window.electronAPI) {
+  window.electronAPI.onDebugLog((message: string) => {
+    addDebugLog(message);
+  });
 
-// Set up processing progress listener
-window.electronAPI.onProcessingProgress((data: { percent: number; message: string }) => {
-  if (isProcessing) {
-    progressFill.style.width = `${data.percent}%`;
-    progressText.textContent = `${data.message} (${data.percent}%)`;
-  }
-});
+  // Set up processing progress listener
+  window.electronAPI.onProcessingProgress((data: { percent: number; message: string }) => {
+    if (isProcessing) {
+      progressFill.style.width = `${data.percent}%`;
+      progressText.textContent = `${data.message} (${data.percent}%)`;
+    }
+  });
+}
 
 function showOpenStudioButton(videoPath: string, metadataPath: string) {
   // Show a temporary "Open in Studio" button after recording
@@ -349,6 +379,10 @@ function showOpenStudioButton(videoPath: string, metadataPath: string) {
 
   tempBtn.addEventListener('click', async () => {
     try {
+      if (!window.electronAPI) {
+        alert('electronAPI not available');
+        return;
+      }
       await window.electronAPI.openStudio(videoPath, metadataPath);
       tempBtn.remove();
     } catch (error) {
@@ -373,6 +407,10 @@ function setupOpenStudioButton() {
 
   openStudioBtn.addEventListener('click', async () => {
     try {
+      if (!window.electronAPI) {
+        alert('electronAPI not available');
+        return;
+      }
       // Show file dialogs to select video and metadata
       const videoPath = await window.electronAPI.selectVideoFile();
       if (!videoPath) {
@@ -399,6 +437,9 @@ init();
 // Poll recording state (in case it changes externally)
 setInterval(async () => {
   try {
+    if (!window.electronAPI) {
+      return;
+    }
     const state = await window.electronAPI.getRecordingState();
     if (state.isRecording !== isRecording) {
       isRecording = state.isRecording;

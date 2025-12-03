@@ -27,7 +27,36 @@ type StudioElectronAPI = {
 // Extend Window interface to include electronAPI
 declare global {
   interface Window {
-    electronAPI?: StudioElectronAPI;
+    electronAPI?: StudioElectronAPI | {
+      checkPermissions?: () => Promise<{
+        screenRecording: boolean;
+        accessibility: boolean;
+      }>;
+      requestPermissions?: () => Promise<void>;
+      startRecording?: (config: any) => Promise<{ success: boolean }>;
+      stopRecording?: (config: any) => Promise<{ success: boolean; outputPath: string; metadataPath?: string }>;
+      getRecordingState?: () => Promise<{
+        isRecording: boolean;
+        startTime?: number;
+        outputPath?: string;
+      }>;
+      selectOutputPath?: () => Promise<string | null>;
+      onDebugLog?: (callback: (message: string) => void) => void;
+      removeDebugLogListener?: () => void;
+      onProcessingProgress?: (callback: (data: { percent: number; message: string }) => void) => void;
+      removeProcessingProgressListener?: () => void;
+      openStudio?: (videoPath: string, metadataPath: string) => Promise<{ success: boolean }>;
+      selectVideoFile?: () => Promise<string | null>;
+      selectMetadataFile?: () => Promise<string | null>;
+      loadMetadata?: (metadataPath: string) => Promise<RecordingMetadata>;
+      getVideoInfo?: (videoPath: string) => Promise<{
+        width: number;
+        height: number;
+        frameRate: number;
+        duration: number;
+      }>;
+      exportVideo?: (videoPath: string, metadataPath: string, metadata: RecordingMetadata) => Promise<{ success: boolean; outputPath: string }>;
+    };
     __studioInitData?: {
       videoPath: string;
       metadataPath: string;
@@ -111,6 +140,8 @@ async function init() {
       }
       // Don't render here - use animation frame loop for smooth rendering
     });
+
+    // Custom play/pause button is now always visible below the video
 
     // Set up animation frame loop for smooth cursor rendering
     setupAnimationFrameLoop();
@@ -204,7 +235,7 @@ async function loadStudioData() {
     logger.info('Loading metadata from:', metadataPath);
 
     // Load metadata
-    const api = window.electronAPI;
+    const api = window.electronAPI as StudioElectronAPI | undefined;
     if (!api || !api.loadMetadata) {
       throw new Error('electronAPI.loadMetadata not available');
     }
@@ -286,7 +317,7 @@ async function loadStudioData() {
       actualVideoDurationMs = metadata?.video.duration || 0;
       logger.warn('Video element duration invalid, using metadata duration:', actualVideoDurationMs, 'ms');
     }
-    
+
     updateTimelineDuration();
 
     // Update editors and panel
@@ -294,14 +325,14 @@ async function loadStudioData() {
       cursorEditor?.setMetadata(metadata);
       zoomEditor?.setMetadata(metadata);
       keyframePanel?.setMetadata(metadata);
-      
+
       // Set up settings panel with loaded metadata
       setupSettingsPanel();
     }
 
     updateStatus('Ready');
     logger.info('Studio data loaded successfully');
-    
+
     // Render initial preview
     renderPreview();
   } catch (error) {
@@ -320,17 +351,48 @@ function setupSettingsPanel() {
   const cursorSizeValue = document.getElementById('cursor-size-value-setting') as HTMLSpanElement;
   const cursorShapeSelect = document.getElementById('cursor-shape-setting') as HTMLSelectElement;
   const cursorColorInput = document.getElementById('cursor-color-setting') as HTMLInputElement;
-  
+  const cursorMotionBlurEnabledCheckbox = document.getElementById('cursor-motion-blur-enabled-setting') as HTMLInputElement;
+  const cursorMotionBlurStrengthSlider = document.getElementById('cursor-motion-blur-strength-setting') as HTMLInputElement;
+  const cursorMotionBlurStrengthValue = document.getElementById('cursor-motion-blur-strength-value-setting') as HTMLSpanElement;
+
   const zoomEnabledCheckbox = document.getElementById('zoom-enabled-setting') as HTMLInputElement;
   const zoomLevelSlider = document.getElementById('zoom-level-setting') as HTMLInputElement;
   const zoomLevelValue = document.getElementById('zoom-level-value-setting') as HTMLSpanElement;
 
+  // Helper functions
+  function updateCursorMotionBlurVisibility() {
+    const motionBlurStrengthItem = document.getElementById('cursor-motion-blur-strength-setting-item');
+    if (motionBlurStrengthItem) {
+      motionBlurStrengthItem.style.display = cursorMotionBlurEnabledCheckbox.checked ? 'flex' : 'none';
+    }
+  }
+
+  function updateZoomSettingsVisibility() {
+    const zoomLevelItem = document.getElementById('zoom-level-setting-item');
+    if (zoomLevelItem) {
+      zoomLevelItem.style.display = zoomEnabledCheckbox.checked ? 'block' : 'none';
+    }
+  }
+
   // Load current settings from metadata
   if (metadata.cursor.config) {
-    cursorSizeSlider.value = String(metadata.cursor.config.size || 60);
-    cursorSizeValue.textContent = String(metadata.cursor.config.size || 60);
+    cursorSizeSlider.value = String(metadata.cursor.config.size || 100);
+    cursorSizeValue.textContent = String(metadata.cursor.config.size || 100);
     cursorShapeSelect.value = metadata.cursor.config.shape || 'arrow';
     cursorColorInput.value = metadata.cursor.config.color || '#000000';
+
+    // Initialize motion blur settings
+    if (!metadata.cursor.config.motionBlur) {
+      metadata.cursor.config.motionBlur = {
+        enabled: false,
+        strength: 0.5,
+      };
+    }
+    cursorMotionBlurEnabledCheckbox.checked = metadata.cursor.config.motionBlur.enabled || false;
+    const blurStrengthPercent = Math.round((metadata.cursor.config.motionBlur.strength || 0.5) * 100);
+    cursorMotionBlurStrengthSlider.value = String(blurStrengthPercent);
+    cursorMotionBlurStrengthValue.textContent = String(blurStrengthPercent);
+    updateCursorMotionBlurVisibility();
   }
 
   if (metadata.zoom.config) {
@@ -364,6 +426,37 @@ function setupSettingsPanel() {
     }
   });
 
+  // Motion blur settings
+  cursorMotionBlurEnabledCheckbox.addEventListener('change', () => {
+    if (metadata) {
+      if (!metadata.cursor.config.motionBlur) {
+        metadata.cursor.config.motionBlur = {
+          enabled: false,
+          strength: 0.5,
+        };
+      }
+      metadata.cursor.config.motionBlur.enabled = cursorMotionBlurEnabledCheckbox.checked;
+      updateCursorMotionBlurVisibility();
+      renderPreview();
+    }
+  });
+
+  cursorMotionBlurStrengthSlider.addEventListener('input', (e) => {
+    const value = (e.target as HTMLInputElement).value;
+    const strength = parseFloat(value) / 100; // Convert 0-100 to 0-1
+    cursorMotionBlurStrengthValue.textContent = value;
+    if (metadata) {
+      if (!metadata.cursor.config.motionBlur) {
+        metadata.cursor.config.motionBlur = {
+          enabled: false,
+          strength: 0.5,
+        };
+      }
+      metadata.cursor.config.motionBlur.strength = strength;
+      renderPreview();
+    }
+  });
+
   // Zoom settings
   zoomEnabledCheckbox.addEventListener('change', () => {
     if (metadata) {
@@ -382,22 +475,17 @@ function setupSettingsPanel() {
     }
   });
 
-  function updateZoomSettingsVisibility() {
-    const zoomLevelItem = document.getElementById('zoom-level-setting-item');
-    if (zoomLevelItem) {
-      zoomLevelItem.style.display = zoomEnabledCheckbox.checked ? 'block' : 'none';
-    }
-  }
-
   // Initialize visibility
   updateZoomSettingsVisibility();
+  updateCursorMotionBlurVisibility();
 }
 
 function setupEventListeners() {
   const playPauseBtn = document.getElementById('play-pause-btn');
+  const customPlayPauseBtn = document.getElementById('custom-play-pause-btn');
   const exportBtn = document.getElementById('export-btn');
 
-  playPauseBtn?.addEventListener('click', async () => {
+  const togglePlayPause = async () => {
     if (!videoPreview) return;
 
     if (isPlaying) {
@@ -405,23 +493,42 @@ function setupEventListeners() {
     } else {
       await videoPreview.play();
     }
-  });
+  };
 
-  // Update play/pause button state
+  // Toolbar play/pause button
+  playPauseBtn?.addEventListener('click', togglePlayPause);
+
+  // Custom overlay play/pause button
+  customPlayPauseBtn?.addEventListener('click', togglePlayPause);
+
+  // Update play/pause button states
   const videoEl = videoPreview?.getVideoElement();
   if (videoEl) {
-    videoEl.addEventListener('play', () => {
-      isPlaying = true;
+    const updatePlayPauseState = (playing: boolean) => {
+      isPlaying = playing;
+      
+      // Update toolbar button
       const btn = document.getElementById('play-pause-btn');
-      if (btn) btn.textContent = 'Pause';
+      if (btn) btn.textContent = playing ? 'Pause' : 'Play';
+      
+      // Update custom button
+      if (customPlayPauseBtn) {
+        if (playing) {
+          customPlayPauseBtn.classList.add('playing');
+        } else {
+          customPlayPauseBtn.classList.remove('playing');
+        }
+      }
+    };
+
+    videoEl.addEventListener('play', () => {
+      updatePlayPauseState(true);
       // Start animation frame loop when playing
       startAnimationFrameLoop();
     });
 
     videoEl.addEventListener('pause', () => {
-      isPlaying = false;
-      const btn = document.getElementById('play-pause-btn');
-      if (btn) btn.textContent = 'Play';
+      updatePlayPauseState(false);
       // Stop animation frame loop when paused
       stopAnimationFrameLoop();
       // Render once when paused to show current frame
@@ -479,10 +586,10 @@ function formatTime(seconds: number): string {
 
 function updateCursorPositionDisplay(timestamp: number, videoWidth: number, videoHeight: number): void {
   if (!metadata) return;
-  
+
   const cursorPos = interpolateCursorPosition(metadata.cursor.keyframes, timestamp);
   const cursorPositionEl = document.getElementById('cursor-position');
-  
+
   if (cursorPositionEl && cursorPos) {
     // Display cursor position in video coordinates
     cursorPositionEl.textContent = `Cursor: (${Math.round(cursorPos.x)}, ${Math.round(cursorPos.y)})`;
@@ -505,7 +612,7 @@ function renderPreview() {
   if (!wrapper) return;
 
   const wrapperRect = wrapper.getBoundingClientRect();
-  
+
   // Calculate video position relative to wrapper
   const videoX = videoRect.left - wrapperRect.left;
   const videoY = videoRect.top - wrapperRect.top;
@@ -517,11 +624,11 @@ function renderPreview() {
   // The video element preserves aspect ratio, so we need to account for letterboxing
   const videoAspectRatio = videoWidth / videoHeight;
   const containerAspectRatio = videoRect.width / videoRect.height;
-  
+
   // Determine actual video content dimensions within the video element
   let actualVideoDisplayWidth: number;
   let actualVideoDisplayHeight: number;
-  
+
   if (videoAspectRatio > containerAspectRatio) {
     // Video is wider - fits to width, letterboxed top/bottom
     actualVideoDisplayWidth = videoRect.width;
@@ -556,7 +663,7 @@ function renderPreview() {
   // Use actual video element duration
   const videoDuration = getActualVideoDuration();
   const clampedTime = Math.min(videoCurrentTime, videoDuration || Infinity);
-  
+
   // Update currentTime for display purposes
   currentTime = clampedTime;
 
@@ -571,25 +678,25 @@ function renderPreview() {
   if (ctx) {
     // Clear canvas first (before translation)
     ctx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
-    
+
     // Translate to video content area
     ctx.save();
     ctx.translate(videoContentOffsetX, videoContentOffsetY);
 
     // Render cursor relative to video content area (no offsets needed since we translated)
     // Pass content dimensions so scale is calculated correctly
-  renderCursor(
-    cursorCanvas,
-    metadata,
+    renderCursor(
+      cursorCanvas,
+      metadata,
       clampedTime,
-    videoWidth,
-    videoHeight,
+      videoWidth,
+      videoHeight,
       actualVideoDisplayWidth,
       actualVideoDisplayHeight
-  );
+    );
 
     ctx.restore();
-    
+
     // Update cursor position display
     updateCursorPositionDisplay(clampedTime, videoWidth, videoHeight);
   }
@@ -599,22 +706,22 @@ function renderPreview() {
   if (zoomCtx) {
     // Clear canvas first (before translation)
     zoomCtx.clearRect(0, 0, zoomCanvas.width, zoomCanvas.height);
-    
+
     // Translate to video content area
     zoomCtx.save();
     zoomCtx.translate(videoContentOffsetX, videoContentOffsetY);
-    
+
     // Render zoom relative to video content area
-  renderZoom(
-    zoomCanvas,
-    metadata,
+    renderZoom(
+      zoomCanvas,
+      metadata,
       clampedTime,
-    videoWidth,
-    videoHeight,
+      videoWidth,
+      videoHeight,
       actualVideoDisplayWidth,
       actualVideoDisplayHeight
-  );
-    
+    );
+
     zoomCtx.restore();
   }
 }
@@ -626,7 +733,7 @@ function setupAnimationFrameLoop() {
 function startAnimationFrameLoop() {
   // Cancel any existing loop
   stopAnimationFrameLoop();
-  
+
   // Start new animation frame loop
   function animate() {
     if (isPlaying && videoPreview) {
@@ -637,7 +744,7 @@ function startAnimationFrameLoop() {
       animationFrameId = null;
     }
   }
-  
+
   animationFrameId = requestAnimationFrame(animate);
 }
 
@@ -649,7 +756,7 @@ function stopAnimationFrameLoop() {
 }
 
 function setupExportProgressListener() {
-  const api = window.electronAPI;
+  const api = window.electronAPI as StudioElectronAPI | undefined;
   if (!api || !api.onProcessingProgress) {
     logger.warn('onProcessingProgress not available');
     return;
@@ -698,7 +805,7 @@ async function exportVideo() {
     showExportProgress();
     updateExportProgress(0, 'Starting export...');
 
-    const api = window.electronAPI;
+    const api = window.electronAPI as StudioElectronAPI | undefined;
     if (!api || !api.exportVideo) {
       throw new Error('electronAPI.exportVideo not available');
     }
@@ -741,7 +848,7 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
 
   // Get click "down" events (actual clicks, not releases)
   const clickDownEvents = metadata.clicks.filter(c => c.action === 'down');
-  
+
   if (clickDownEvents.length === 0) {
     return; // No actual clicks
   }
@@ -754,25 +861,25 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
   // Only create if there are significantly more clicks than keyframes
   const existingKeyframes = metadata.cursor.keyframes.length;
   const clickCount = clicks.length;
-  
+
   // Early exit: if we already have enough keyframes, skip
   // We expect 1 keyframe per click, so check for that
   if (existingKeyframes >= clickCount) {
     logger.debug(`Skipping auto-create: ${existingKeyframes} keyframes already exist for ${clickCount} clicks`);
     return;
   }
-  
+
   // If there are clicks but very few keyframes (less than the number of clicks),
   // auto-create keyframes from clicks
   if (existingKeyframes < clickCount) {
     const startTime = performance.now();
     logger.info(`Auto-creating cursor keyframes from ${clickCount} clicks (existing: ${existingKeyframes})`);
-    
+
     // Get initial cursor position (first keyframe or first click position)
     let initialX = 0;
     let initialY = 0;
     const hasExistingKeyframes = metadata.cursor.keyframes.length > 0;
-    
+
     if (hasExistingKeyframes) {
       initialX = metadata.cursor.keyframes[0].x;
       initialY = metadata.cursor.keyframes[0].y;
@@ -784,7 +891,7 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
     // Clear existing keyframes if we're auto-creating from scratch
     if (!hasExistingKeyframes) {
       metadata.cursor.keyframes = [];
-      
+
       // Add initial keyframe at timestamp 0
       metadata.cursor.keyframes.push({
         timestamp: 0,
@@ -802,7 +909,7 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
     // Smooth motion will be handled by the SmoothPosition2D smoother
     for (let i = 0; i < clicks.length; i++) {
       const click = clicks[i];
-      
+
       // Keyframe at the click timestamp, at current click's position
       newKeyframes.push({
         timestamp: click.timestamp,
@@ -821,15 +928,15 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
     // Optimized: single pass through sorted array
     const deduplicated: CursorKeyframe[] = [];
     const totalKeyframes = metadata.cursor.keyframes.length;
-    
+
     for (let i = 0; i < totalKeyframes; i++) {
       const current = metadata.cursor.keyframes[i];
-      
+
       // Check if this keyframe is too close to the previous one
       if (deduplicated.length > 0) {
         const last = deduplicated[deduplicated.length - 1];
         const timeDiff = current.timestamp - last.timestamp;
-        
+
         if (timeDiff < minKeyframeSpacing) {
           // Too close - merge by keeping the later one (prefer click position over "before" position)
           if (current.timestamp >= last.timestamp) {
@@ -839,23 +946,23 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
           continue;
         }
       }
-      
+
       // Far enough from previous keyframe - add it
       deduplicated.push(current);
     }
-    
+
     // Replace with deduplicated array
     metadata.cursor.keyframes = deduplicated;
 
     // Ensure there's a final keyframe at the end of the video
     const actualVideoDuration = getActualVideoDuration() || metadata.video.duration;
     const lastKeyframe = metadata.cursor.keyframes[metadata.cursor.keyframes.length - 1];
-    
+
     if (!lastKeyframe || lastKeyframe.timestamp < actualVideoDuration - 100) {
       // Add final keyframe at the last click position or last keyframe position
       const finalX = lastKeyframe?.x || clicks[clicks.length - 1]?.x || initialX;
       const finalY = lastKeyframe?.y || clicks[clicks.length - 1]?.y || initialY;
-      
+
       metadata.cursor.keyframes.push({
         timestamp: actualVideoDuration,
         x: finalX,
@@ -879,7 +986,7 @@ function autoCreateZoomKeyframesFromClicks(metadata: RecordingMetadata) {
 
   // Get click "down" events (actual clicks, not releases)
   const clickDownEvents = metadata.clicks.filter(c => c.action === 'down');
-  
+
   if (clickDownEvents.length === 0) {
     return; // No actual clicks
   }
@@ -888,10 +995,10 @@ function autoCreateZoomKeyframesFromClicks(metadata: RecordingMetadata) {
   // Keep only the initial keyframe at timestamp 0 if it exists
   const existingZoomKeyframes = metadata.zoom.keyframes.length;
   const initialKeyframe = metadata.zoom.keyframes.find(kf => kf.timestamp === 0);
-  
+
   // Reset zoom keyframes - we'll generate new ones from clicks
   metadata.zoom.keyframes = [];
-  
+
   // Add initial keyframe (no zoom) if we had one, otherwise create default
   if (initialKeyframe) {
     metadata.zoom.keyframes.push({
@@ -919,7 +1026,7 @@ function autoCreateZoomKeyframesFromClicks(metadata: RecordingMetadata) {
   const zoomLevel = configLevel > 1.0 ? configLevel : 2.0;
   const videoWidth = metadata.video.width;
   const videoHeight = metadata.video.height;
-  
+
   // Calculate crop dimensions from zoom level
   const cropWidth = videoWidth / zoomLevel;
   const cropHeight = videoHeight / zoomLevel;
@@ -934,10 +1041,10 @@ function autoCreateZoomKeyframesFromClicks(metadata: RecordingMetadata) {
   // Add zoom keyframes for each click
   for (let i = 0; i < clickDownEvents.length; i++) {
     const click = clickDownEvents[i];
-    
+
     // Zoom keyframe 1: 7 frames before the click, zoom out (level 1.0) or previous zoom state
     const beforeTimestamp = Math.max(0, click.timestamp - frameDurationMs);
-    
+
     // Only create "before" keyframe if it's actually before the click timestamp
     if (beforeTimestamp < click.timestamp) {
       // Use previous click's zoom state, or no zoom if first click
@@ -947,7 +1054,7 @@ function autoCreateZoomKeyframesFromClicks(metadata: RecordingMetadata) {
       const prevCropHeight = videoHeight / prevZoomLevel;
       const prevCenterX = prevClick ? prevClick.x : videoWidth / 2;
       const prevCenterY = prevClick ? prevClick.y : videoHeight / 2;
-      
+
       newZoomKeyframes.push({
         timestamp: beforeTimestamp,
         centerX: prevCenterX,
@@ -977,15 +1084,15 @@ function autoCreateZoomKeyframesFromClicks(metadata: RecordingMetadata) {
 
   // Deduplicate zoom keyframes - ensure each timestamp is unique
   const deduplicated: ZoomKeyframe[] = [];
-  
+
   for (let i = 0; i < metadata.zoom.keyframes.length; i++) {
     const current = metadata.zoom.keyframes[i];
-    
+
     // Check if this keyframe is too close to the previous one
     if (deduplicated.length > 0) {
       const last = deduplicated[deduplicated.length - 1];
       const timeDiff = current.timestamp - last.timestamp;
-      
+
       if (timeDiff < minKeyframeSpacing) {
         // Too close - merge by keeping the later one (prefer zoom in over zoom out)
         if (current.timestamp >= last.timestamp) {
@@ -995,18 +1102,18 @@ function autoCreateZoomKeyframesFromClicks(metadata: RecordingMetadata) {
         continue;
       }
     }
-    
+
     // Far enough from previous keyframe - add it
     deduplicated.push(current);
   }
-  
+
   // Replace with deduplicated array
   metadata.zoom.keyframes = deduplicated;
 
   // Ensure there's a final zoom keyframe at the end of the video
   const actualVideoDuration = getActualVideoDuration() || metadata.video.duration;
   const lastZoomKeyframe = metadata.zoom.keyframes[metadata.zoom.keyframes.length - 1];
-  
+
   if (!lastZoomKeyframe || lastZoomKeyframe.timestamp < actualVideoDuration - 100) {
     // Add final zoom keyframe - zoom out to default if last click was zoomed in
     const finalZoomLevel = lastZoomKeyframe?.level || 1.0;
@@ -1014,7 +1121,7 @@ function autoCreateZoomKeyframesFromClicks(metadata: RecordingMetadata) {
     const finalCropHeight = videoHeight / finalZoomLevel;
     const finalCenterX = lastZoomKeyframe?.centerX || videoWidth / 2;
     const finalCenterY = lastZoomKeyframe?.centerY || videoHeight / 2;
-    
+
     metadata.zoom.keyframes.push({
       timestamp: actualVideoDuration,
       centerX: finalCenterX,

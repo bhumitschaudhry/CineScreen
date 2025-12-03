@@ -35,7 +35,7 @@ export const FRAME_NUMBER_PADDING = 6;
 /**
  * Default cursor size in pixels
  */
-export const DEFAULT_CURSOR_SIZE = 60;
+export const DEFAULT_CURSOR_SIZE = 100;
 
 /**
  * Default cursor color (black)
@@ -50,11 +50,6 @@ export const DEFAULT_CURSOR_SHAPE = 'arrow';
 // ========================================
 // Cursor Animation Constants
 // ========================================
-
-/**
- * Number of frames before a click to start gliding cursor towards click position
- */
-export const CURSOR_GLIDE_START_FRAMES = 16;
 
 /**
  * Pixels threshold - cursor is considered static if movement < this
@@ -73,7 +68,6 @@ export const CURSOR_LOOP_DURATION_SECONDS = 0.5;
 
 /**
  * Default cursor frame offset (negative = earlier, positive = later)
- * Default is -10 frames (cursor arrives 10 frames earlier)
  */
 export const DEFAULT_CURSOR_FRAME_OFFSET = -10;
 
@@ -140,7 +134,7 @@ export const MOTION_BLUR_MIN_VELOCITY = 10;
 /**
  * Maximum blur sigma value for cursor motion blur
  */
-export const MOTION_BLUR_MAX_SIGMA = 5;
+export const MOTION_BLUR_MAX_SIGMA = 2;
 
 /**
  * Motion blur strength multiplier
@@ -150,7 +144,7 @@ export const MOTION_BLUR_STRENGTH_MULTIPLIER = 0.1;
 /**
  * Motion blur base multiplier for blur length calculation
  */
-export const MOTION_BLUR_BASE_MULTIPLIER = 20;
+export const MOTION_BLUR_BASE_MULTIPLIER = 1.5;
 
 /**
  * Maximum motion blur length in pixels
@@ -165,7 +159,7 @@ export const MOTION_BLUR_MIN_LENGTH = 0.5;
 /**
  * Motion blur sigma conversion factor (blur length to sigma)
  */
-export const MOTION_BLUR_SIGMA_FACTOR = 0.3;
+export const MOTION_BLUR_SIGMA_FACTOR = 0.1;
 
 /**
  * Minimum velocity threshold for motion blur (very small movements ignored)

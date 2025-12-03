@@ -188,25 +188,23 @@ export async function renderFrame(
       let cursorImage = sharp(cursorImagePath)
         .resize(scaledCursorSize, scaledCursorSize, { fit: 'contain', background: TRANSPARENT_BACKGROUND });
 
-      // Apply motion blur if enabled
-      if (options.cursorConfig?.motionBlur?.enabled) {
+      // Get cursor buffer first (before motion blur)
+      cursorBuffer = await cursorImage.png().toBuffer();
+
+      // Apply motion blur if enabled (blur is applied relative to cursor speed)
+      if (options.cursorConfig?.motionBlur?.enabled && cursorBuffer) {
         const motionBlurStrength = options.cursorConfig.motionBlur.strength ?? 0.5;
-        const velocity = calculateVelocity(
-          0, 0,
+        
+        // Velocity is already in pixels per second from frame data
+        // Pass it directly to motion blur function which scales blur based on speed
+        cursorBuffer = await applyCursorMotionBlur(
+          cursorBuffer,
           frameData.cursorVelocityX,
           frameData.cursorVelocityY,
-          1 / options.frameRate
+          motionBlurStrength,
+          options.frameRate
         );
-
-        // Note: Sharp doesn't have native motion blur, so we'll apply it as a post-process
-        // For now, we'll use a simple blur approximation
-        if (velocity.speed > MOTION_BLUR_MIN_VELOCITY) { // Only blur if moving fast enough
-          const blurSigma = velocity.speed * motionBlurStrength * MOTION_BLUR_STRENGTH_MULTIPLIER;
-          cursorImage = cursorImage.blur(Math.min(blurSigma, MOTION_BLUR_MAX_SIGMA));
-        }
       }
-
-      cursorBuffer = await cursorImage.png().toBuffer();
     } catch (error) {
       logger.warn('Failed to load cursor image:', error);
     }

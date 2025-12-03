@@ -6,6 +6,7 @@ import {
   MOTION_BLUR_MAX_LENGTH,
   MOTION_BLUR_MIN_LENGTH,
   MOTION_BLUR_SIGMA_FACTOR,
+  MOTION_BLUR_MAX_SIGMA,
 } from '../utils/constants';
 
 const logger = createLogger('MotionBlur');
@@ -47,7 +48,7 @@ export async function applyMotionBlur(
     
     // For now, we'll use a simple gaussian blur as approximation
     // In production, you'd want to use a proper motion blur filter
-    const sigma = blurLength * MOTION_BLUR_SIGMA_FACTOR; // Convert blur length to sigma
+    const sigma = Math.min(blurLength * MOTION_BLUR_SIGMA_FACTOR, MOTION_BLUR_MAX_SIGMA); // Convert blur length to sigma, capped at max
     
     const blurred = await sharp(imageBuffer)
       .blur(sigma)
