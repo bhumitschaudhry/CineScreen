@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import type { CursorConfig } from '../types';
 import { createLogger } from '../utils/logger';
+import { DEFAULT_CURSOR_SIZE } from '../utils/constants';
 
 // Create logger for cursor renderer
 const logger = createLogger('CursorRenderer');
@@ -210,7 +211,7 @@ export function generateCursorSVG(config: CursorConfig | undefined): string {
   // Provide default config if undefined
   if (!config) {
     config = {
-      size: 60,
+      size: DEFAULT_CURSOR_SIZE,
       shape: 'arrow',
       color: '#000000',
     };

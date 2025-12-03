@@ -14,7 +14,7 @@ import { hideSystemCursor, showSystemCursor, ensureCursorVisible } from './curso
 import type { RecordingConfig, CursorConfig, RecordingState, ZoomConfig, MouseEffectsConfig } from '../types';
 import type { RecordingMetadata } from '../types/metadata';
 import { createLogger, setLogSender } from '../utils/logger';
-import { DEFAULT_FRAME_RATE } from '../utils/constants';
+import { DEFAULT_FRAME_RATE, DEFAULT_CURSOR_SIZE } from '../utils/constants';
 
 // Create logger for main process
 const logger = createLogger('Main');
@@ -203,7 +203,7 @@ ipcMain.handle('stop-recording', async (_, config: {
   // Provide default cursor config if not provided
   if (!cursorConfig) {
     cursorConfig = {
-      size: 60,
+      size: DEFAULT_CURSOR_SIZE,
       shape: 'arrow',
       color: '#000000',
     };

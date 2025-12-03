@@ -69,7 +69,7 @@ export const CURSOR_LOOP_DURATION_SECONDS = 0.5;
 /**
  * Default cursor frame offset (negative = earlier, positive = later)
  */
-export const DEFAULT_CURSOR_FRAME_OFFSET = -10;
+export const DEFAULT_CURSOR_FRAME_OFFSET = -12;
 
 /**
  * Cursor click animation duration in milliseconds

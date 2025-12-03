@@ -30,11 +30,24 @@
 
     #toolbar {
       background: #1a1a1a;
-      padding: 10px 20px;
+      padding: 12px 20px;
       border-bottom: 1px solid #2a2a2a;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
+    }
+
+    .toolbar-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+
+    .toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
 
     .toolbar-button {
@@ -45,6 +58,9 @@
       border-radius: 4px;
       cursor: pointer;
       font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
 
     .toolbar-button:hover {
@@ -54,6 +70,84 @@
     .toolbar-button:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+
+    .playback-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .playback-button {
+      background: transparent;
+      border: none;
+      color: #e0e0e0;
+      cursor: pointer;
+      padding: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      transition: background 0.2s;
+    }
+
+    .playback-button:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .playback-button svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .play-button {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: #ffffff;
+      color: #1a1a1a;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .play-button:hover {
+      transform: scale(1.05);
+      box-shadow: 0 2px 8px rgba(255, 255, 255, 0.3);
+    }
+
+    .play-button:active {
+      transform: scale(0.95);
+    }
+
+    .play-button svg {
+      width: 20px;
+      height: 20px;
+      display: block;
+    }
+
+    .play-button .play-icon {
+      margin-left: 2px;
+    }
+
+    .play-button.playing .play-icon {
+      display: none;
+    }
+
+    .play-button.playing .pause-icon {
+      display: block;
+    }
+
+    .play-button:not(.playing) .play-icon {
+      display: block;
+    }
+
+    .play-button:not(.playing) .pause-icon {
+      display: none;
     }
 
     #main-content {
@@ -68,6 +162,16 @@
       flex-direction: column;
       background: #000;
       position: relative;
+    }
+
+    #video-controls {
+      background: #1a1a1a;
+      padding: 16px 20px;
+      border-top: 1px solid #2a2a2a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
     }
 
     #video-preview-wrapper {
@@ -100,62 +204,7 @@
     }
 
     .custom-play-pause-button {
-      width: 56px;
-      height: 56px;
-      border-radius: 50%;
-      background: rgba(26, 26, 26, 0.85);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      color: #e0e0e0;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 20px auto;
-      transition: all 0.2s ease;
-      opacity: 0.7;
-      pointer-events: auto;
-      backdrop-filter: blur(8px);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-    }
-
-    .custom-play-pause-button:hover {
-      background: rgba(58, 58, 58, 0.9);
-      border-color: rgba(255, 255, 255, 0.25);
-      opacity: 1;
-      transform: scale(1.05);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    }
-
-    .custom-play-pause-button:active {
-      transform: scale(0.95);
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
-    }
-
-    .custom-play-pause-button svg {
-      width: 24px;
-      height: 24px;
-      display: block;
-      opacity: 0.9;
-    }
-
-    .custom-play-pause-button .play-icon {
-      margin-left: 2px; /* Slight offset for visual centering */
-    }
-
-    .custom-play-pause-button.playing .play-icon {
-      display: none;
-    }
-
-    .custom-play-pause-button.playing .pause-icon {
-      display: block;
-    }
-
-    .custom-play-pause-button:not(.playing) .play-icon {
-      display: block;
-    }
-
-    .custom-play-pause-button:not(.playing) .pause-icon {
-      display: none;
+      display: none; /* Hide the overlay button, using toolbar controls instead */
     }
 
     #sidebar {
@@ -418,7 +467,7 @@
       top: 0;
       bottom: 0;
       width: 2px;
-      background: #fff;
+      background: #4a9eff;
       pointer-events: none;
       z-index: 10;
     }
@@ -426,12 +475,13 @@
     .playhead::before {
       content: '';
       position: absolute;
-      top: -5px;
-      left: -5px;
-      width: 12px;
-      height: 12px;
-      background: #fff;
+      top: -6px;
+      left: -6px;
+      width: 14px;
+      height: 14px;
+      background: #4a9eff;
       border-radius: 50%;
+      border: 2px solid #1a1a1a;
     }
 
     #status-bar {
@@ -475,11 +525,12 @@
   </noscript>
   <div id="studio-container">
     <div id="toolbar">
-      <button id="play-pause-btn" class="toolbar-button">Play</button>
-      <button id="export-btn" class="toolbar-button">Export Video</button>
-      <div style="flex: 1;"></div>
-      <span id="time-display">00:00 / 00:00</span>
-      <span id="cursor-position" style="margin-left: 20px; font-size: 12px; color: #999;">Cursor: (0, 0)</span>
+      <div class="toolbar-left">
+        <button id="export-btn" class="toolbar-button">Export Video</button>
+      </div>
+      <div class="toolbar-right">
+        <span id="time-display" style="font-size: 13px; color: #999;">00:00 / 00:00</span>
+      </div>
     </div>
 
     <div id="main-content">
@@ -489,15 +540,27 @@
           <canvas id="cursor-canvas"></canvas>
           <canvas id="zoom-canvas"></canvas>
         </div>
-        <button id="custom-play-pause-btn" class="custom-play-pause-button">
-          <svg id="play-icon" class="play-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M8 5v14l11-7z" fill="currentColor"/>
-          </svg>
-          <svg id="pause-icon" class="pause-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
-            <rect x="6" y="4" width="4" height="16" fill="currentColor"/>
-            <rect x="14" y="4" width="4" height="16" fill="currentColor"/>
-          </svg>
-        </button>
+        <div id="video-controls">
+          <button id="skip-backward-btn" class="playback-button" title="Skip backward">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M11 18V6l-8.5 6 8.5 6zm.5-12l8.5 6-8.5 6V6z" fill="currentColor"/>
+            </svg>
+          </button>
+          <button id="play-pause-btn" class="play-button" title="Play/Pause">
+            <svg id="play-icon" class="play-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M8 5v14l11-7z" fill="currentColor"/>
+            </svg>
+            <svg id="pause-icon" class="pause-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
+              <rect x="6" y="4" width="4" height="16" fill="currentColor"/>
+              <rect x="14" y="4" width="4" height="16" fill="currentColor"/>
+            </svg>
+          </button>
+          <button id="skip-forward-btn" class="playback-button" title="Skip forward">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" fill="currentColor"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div id="sidebar">

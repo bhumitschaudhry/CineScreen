@@ -482,7 +482,8 @@ function setupSettingsPanel() {
 
 function setupEventListeners() {
   const playPauseBtn = document.getElementById('play-pause-btn');
-  const customPlayPauseBtn = document.getElementById('custom-play-pause-btn');
+  const skipBackwardBtn = document.getElementById('skip-backward-btn');
+  const skipForwardBtn = document.getElementById('skip-forward-btn');
   const exportBtn = document.getElementById('export-btn');
 
   const togglePlayPause = async () => {
@@ -495,11 +496,29 @@ function setupEventListeners() {
     }
   };
 
+  const skipBackward = () => {
+    if (!videoPreview) return;
+    const videoEl = videoPreview.getVideoElement();
+    const currentTime = videoEl.currentTime;
+    videoEl.currentTime = Math.max(0, currentTime - 5); // Skip back 5 seconds
+    renderPreview();
+  };
+
+  const skipForward = () => {
+    if (!videoPreview) return;
+    const videoEl = videoPreview.getVideoElement();
+    const duration = videoEl.duration;
+    const currentTime = videoEl.currentTime;
+    videoEl.currentTime = Math.min(duration, currentTime + 5); // Skip forward 5 seconds
+    renderPreview();
+  };
+
   // Toolbar play/pause button
   playPauseBtn?.addEventListener('click', togglePlayPause);
 
-  // Custom overlay play/pause button
-  customPlayPauseBtn?.addEventListener('click', togglePlayPause);
+  // Skip buttons
+  skipBackwardBtn?.addEventListener('click', skipBackward);
+  skipForwardBtn?.addEventListener('click', skipForward);
 
   // Update play/pause button states
   const videoEl = videoPreview?.getVideoElement();
@@ -507,16 +526,20 @@ function setupEventListeners() {
     const updatePlayPauseState = (playing: boolean) => {
       isPlaying = playing;
       
-      // Update toolbar button
+      // Update toolbar button classes
       const btn = document.getElementById('play-pause-btn');
-      if (btn) btn.textContent = playing ? 'Pause' : 'Play';
-      
-      // Update custom button
-      if (customPlayPauseBtn) {
+      if (btn) {
+        const playIcon = btn.querySelector('.play-icon') as HTMLElement;
+        const pauseIcon = btn.querySelector('.pause-icon') as HTMLElement;
+        
         if (playing) {
-          customPlayPauseBtn.classList.add('playing');
+          btn.classList.add('playing');
+          if (playIcon) playIcon.style.display = 'none';
+          if (pauseIcon) pauseIcon.style.display = 'block';
         } else {
-          customPlayPauseBtn.classList.remove('playing');
+          btn.classList.remove('playing');
+          if (playIcon) playIcon.style.display = 'block';
+          if (pauseIcon) pauseIcon.style.display = 'none';
         }
       }
     };

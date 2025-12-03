@@ -1,36 +1,33 @@
 import type { RecordingConfig, CursorConfig, ZoomConfig, MouseEffectsConfig } from '../types';
-import { DEFAULT_FRAME_RATE } from '../utils/constants';
+import { DEFAULT_FRAME_RATE, DEFAULT_CURSOR_SIZE } from '../utils/constants';
 
-declare global {
-  interface Window {
-    electronAPI?: {
-      checkPermissions: () => Promise<{
-        screenRecording: boolean;
-        accessibility: boolean;
-      }>;
-      requestPermissions: () => Promise<void>;
-      startRecording: (config: RecordingConfig) => Promise<{ success: boolean }>;
-      stopRecording: (config: {
-        cursorConfig: CursorConfig;
-        zoomConfig?: ZoomConfig;
-        mouseEffectsConfig?: MouseEffectsConfig;
-      }) => Promise<{ success: boolean; outputPath: string; metadataPath?: string }>;
-      getRecordingState: () => Promise<{
-        isRecording: boolean;
-        startTime?: number;
-        outputPath?: string;
-      }>;
-      selectOutputPath: () => Promise<string | null>;
-      onDebugLog: (callback: (message: string) => void) => void;
-      removeDebugLogListener: () => void;
-      onProcessingProgress: (callback: (data: { percent: number; message: string }) => void) => void;
-      removeProcessingProgressListener: () => void;
-      openStudio: (videoPath: string, metadataPath: string) => Promise<{ success: boolean }>;
-      selectVideoFile: () => Promise<string | null>;
-      selectMetadataFile: () => Promise<string | null>;
-    };
-  }
-}
+// Type definition for electronAPI in renderer context
+type RendererElectronAPI = {
+  checkPermissions: () => Promise<{
+    screenRecording: boolean;
+    accessibility: boolean;
+  }>;
+  requestPermissions: () => Promise<void>;
+  startRecording: (config: RecordingConfig) => Promise<{ success: boolean }>;
+  stopRecording: (config: {
+    cursorConfig: CursorConfig;
+    zoomConfig?: ZoomConfig;
+    mouseEffectsConfig?: MouseEffectsConfig;
+  }) => Promise<{ success: boolean; outputPath: string; metadataPath?: string }>;
+  getRecordingState: () => Promise<{
+    isRecording: boolean;
+    startTime?: number;
+    outputPath?: string;
+  }>;
+  selectOutputPath: () => Promise<string | null>;
+  onDebugLog: (callback: (message: string) => void) => void;
+  removeDebugLogListener: () => void;
+  onProcessingProgress: (callback: (data: { percent: number; message: string }) => void) => void;
+  removeProcessingProgressListener: () => void;
+  openStudio: (videoPath: string, metadataPath: string) => Promise<{ success: boolean }>;
+  selectVideoFile: () => Promise<string | null>;
+  selectMetadataFile: () => Promise<string | null>;
+};
 
 // DOM Elements
 const recordBtn = document.getElementById('record-btn') as HTMLButtonElement;
@@ -67,8 +64,9 @@ async function init() {
   setupOpenStudioButton();
 
   // Set default output path
-  if (window.electronAPI) {
-    outputPath = await window.electronAPI.selectOutputPath();
+  const api = window.electronAPI as RendererElectronAPI | undefined;
+  if (api) {
+    outputPath = await api.selectOutputPath();
     if (outputPath) {
       outputPathInput.value = outputPath;
     }
@@ -83,11 +81,12 @@ function setupEventListeners() {
 // Check permissions
 async function checkPermissions() {
   try {
-    if (!window.electronAPI) {
+    const api = window.electronAPI as RendererElectronAPI | undefined;
+    if (!api) {
       console.error('electronAPI not available');
       return;
     }
-    const permissions = await window.electronAPI.checkPermissions();
+    const permissions = await api.checkPermissions();
     updatePermissionStatus(permissions);
   } catch (error) {
     console.error('Error checking permissions:', error);
@@ -119,11 +118,12 @@ function updatePermissionStatus(permissions: {
 // Request permissions
 requestPermissionsBtn.addEventListener('click', async () => {
   try {
-    if (!window.electronAPI) {
+    const api = window.electronAPI as RendererElectronAPI | undefined;
+    if (!api) {
       console.error('electronAPI not available');
       return;
     }
-    await window.electronAPI.requestPermissions();
+    await api.requestPermissions();
     // Wait a bit for user to grant permissions
     setTimeout(() => {
       checkPermissions();
@@ -140,11 +140,12 @@ recordBtn.addEventListener('click', async () => {
   }
 
   if (!outputPath) {
-    if (!window.electronAPI) {
+    const api = window.electronAPI as RendererElectronAPI | undefined;
+    if (!api) {
       alert('electronAPI not available');
       return;
     }
-    outputPath = await window.electronAPI.selectOutputPath();
+    outputPath = await api.selectOutputPath();
     if (!outputPath) {
       alert('Please select an output path');
       return;
@@ -159,14 +160,15 @@ recordBtn.addEventListener('click', async () => {
   };
 
   try {
-    if (!window.electronAPI) {
+    const api = window.electronAPI as RendererElectronAPI | undefined;
+    if (!api) {
       alert('electronAPI not available');
       return;
     }
     statusText.textContent = 'Starting recording...';
     recordBtn.disabled = true;
 
-    await window.electronAPI.startRecording(config);
+    await api.startRecording(config);
 
     isRecording = true;
     updateUI();
@@ -188,7 +190,7 @@ stopBtn.addEventListener('click', async () => {
 
   // Use default configs - settings are now in studio
   const cursorConfig: CursorConfig = {
-    size: 60,
+    size: DEFAULT_CURSOR_SIZE,
     shape: 'arrow',
     color: '#000000',
   };
@@ -232,7 +234,8 @@ stopBtn.addEventListener('click', async () => {
     progressFill.style.width = '0%';
     progressText.textContent = 'Processing video...';
 
-    if (!window.electronAPI) {
+    const api = window.electronAPI as RendererElectronAPI | undefined;
+    if (!api) {
       alert('electronAPI not available');
       stopBtn.disabled = false;
       isProcessing = false;
@@ -240,7 +243,7 @@ stopBtn.addEventListener('click', async () => {
       return;
     }
 
-    const result = await window.electronAPI.stopRecording({
+    const result = await api.stopRecording({
       cursorConfig,
       zoomConfig,
       mouseEffectsConfig,
@@ -292,11 +295,12 @@ function updateUI() {
 
 // Select output path
 selectPathBtn.addEventListener('click', async () => {
-  if (!window.electronAPI) {
+  const api = window.electronAPI as RendererElectronAPI | undefined;
+  if (!api) {
     alert('electronAPI not available');
     return;
   }
-  const path = await window.electronAPI.selectOutputPath();
+  const path = await api.selectOutputPath();
   if (path) {
     outputPath = path;
     outputPathInput.value = path;
@@ -355,13 +359,14 @@ clearDebugBtn.addEventListener('click', () => {
 });
 
 // Set up debug log listener
-if (window.electronAPI) {
-  window.electronAPI.onDebugLog((message: string) => {
+const api = window.electronAPI as RendererElectronAPI | undefined;
+if (api) {
+  api.onDebugLog((message: string) => {
     addDebugLog(message);
   });
 
   // Set up processing progress listener
-  window.electronAPI.onProcessingProgress((data: { percent: number; message: string }) => {
+  api.onProcessingProgress((data: { percent: number; message: string }) => {
     if (isProcessing) {
       progressFill.style.width = `${data.percent}%`;
       progressText.textContent = `${data.message} (${data.percent}%)`;
@@ -379,11 +384,12 @@ function showOpenStudioButton(videoPath: string, metadataPath: string) {
 
   tempBtn.addEventListener('click', async () => {
     try {
-      if (!window.electronAPI) {
+      const api = window.electronAPI as RendererElectronAPI | undefined;
+      if (!api) {
         alert('electronAPI not available');
         return;
       }
-      await window.electronAPI.openStudio(videoPath, metadataPath);
+      await api.openStudio(videoPath, metadataPath);
       tempBtn.remove();
     } catch (error) {
       console.error('Failed to open studio:', error);
@@ -407,23 +413,24 @@ function setupOpenStudioButton() {
 
   openStudioBtn.addEventListener('click', async () => {
     try {
-      if (!window.electronAPI) {
+      const api = window.electronAPI as RendererElectronAPI | undefined;
+      if (!api) {
         alert('electronAPI not available');
         return;
       }
       // Show file dialogs to select video and metadata
-      const videoPath = await window.electronAPI.selectVideoFile();
+      const videoPath = await api.selectVideoFile();
       if (!videoPath) {
         return; // User cancelled
       }
 
-      const metadataPath = await window.electronAPI.selectMetadataFile();
+      const metadataPath = await api.selectMetadataFile();
       if (!metadataPath) {
         return; // User cancelled
       }
 
       // Open studio with selected files
-      await window.electronAPI.openStudio(videoPath, metadataPath);
+      await api.openStudio(videoPath, metadataPath);
     } catch (error) {
       console.error('Failed to open studio:', error);
       alert(`Failed to open studio: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -437,10 +444,11 @@ init();
 // Poll recording state (in case it changes externally)
 setInterval(async () => {
   try {
-    if (!window.electronAPI) {
+    const api = window.electronAPI as RendererElectronAPI | undefined;
+    if (!api) {
       return;
     }
-    const state = await window.electronAPI.getRecordingState();
+    const state = await api.getRecordingState();
     if (state.isRecording !== isRecording) {
       isRecording = state.isRecording;
       updateUI();
