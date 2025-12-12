@@ -36,7 +36,17 @@ export const FRAME_NUMBER_PADDING = 6;
 /**
  * Default cursor size in pixels
  */
-export const DEFAULT_CURSOR_SIZE = 100;
+export const DEFAULT_CURSOR_SIZE = 150;
+
+/**
+ * Minimum cursor size in pixels
+ */
+export const MIN_CURSOR_SIZE = 20;
+
+/**
+ * Maximum cursor size in pixels
+ */
+export const MAX_CURSOR_SIZE = 400;
 
 /**
  * Default cursor color (black)
@@ -66,11 +76,6 @@ export const CURSOR_HIDE_AFTER_MS = 1000;
  * Duration in seconds for cursor loop position animation (return to initial position)
  */
 export const CURSOR_LOOP_DURATION_SECONDS = 0.5;
-
-/**
- * Default cursor frame offset (negative = earlier, positive = later)
- */
-export const DEFAULT_CURSOR_FRAME_OFFSET = -12;
 
 /**
  * Cursor click animation duration in milliseconds

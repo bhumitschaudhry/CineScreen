@@ -4,7 +4,7 @@ import { VideoPreview } from './components/video-preview';
 import { CursorEditor } from './components/cursor-editor';
 import { ZoomEditor } from './components/zoom-editor';
 import { KeyframePanel } from './components/keyframe-panel';
-import { renderCursor, interpolateCursorPosition } from './utils/cursor-renderer';
+import { renderCursor, interpolateCursorPosition, resetCursorSmoothing } from './utils/cursor-renderer';
 import { renderZoom } from './utils/zoom-renderer';
 import { createLogger } from '../utils/logger';
 
@@ -148,12 +148,16 @@ async function init() {
 
     videoPreview.setOnSeek((time) => {
       videoPreview?.seekTo(time);
+      // Reset cursor smoothing on seek for accurate positioning
+      resetCursorSmoothing();
       // Render immediately after seek
       renderPreview();
     });
 
     timeline.setOnSeek((time) => {
       videoPreview?.seekTo(time);
+      // Reset cursor smoothing on seek for accurate positioning
+      resetCursorSmoothing();
       // Render immediately after seek
       renderPreview();
     });
@@ -175,6 +179,8 @@ async function init() {
     // Set up keyframe panel callbacks
     keyframePanel.setOnSeek((time) => {
       videoPreview?.seekTo(time);
+      // Reset cursor smoothing on seek for accurate positioning
+      resetCursorSmoothing();
       // Render immediately after seek
       renderPreview();
     });
@@ -241,6 +247,9 @@ async function loadStudioData() {
     metadata = await api.loadMetadata(metadataPath);
     logger.info('Metadata loaded successfully');
     logger.debug('Metadata:', metadata);
+
+    // Reset cursor smoothing for new video
+    resetCursorSmoothing();
 
     // Load video
     const videoEl = videoPreview?.getVideoElement();
@@ -349,8 +358,6 @@ function setupSettingsPanel() {
   const cursorMotionBlurEnabledCheckbox = document.getElementById('cursor-motion-blur-enabled-setting') as HTMLInputElement;
   const cursorMotionBlurStrengthSlider = document.getElementById('cursor-motion-blur-strength-setting') as HTMLInputElement;
   const cursorMotionBlurStrengthValue = document.getElementById('cursor-motion-blur-strength-value-setting') as HTMLSpanElement;
-  const cursorFrameOffsetSlider = document.getElementById('cursor-frame-offset-setting') as HTMLInputElement;
-  const cursorFrameOffsetValue = document.getElementById('cursor-frame-offset-value-setting') as HTMLSpanElement;
 
   const zoomEnabledCheckbox = document.getElementById('zoom-enabled-setting') as HTMLInputElement;
   const zoomLevelSlider = document.getElementById('zoom-level-setting') as HTMLInputElement;
@@ -389,11 +396,6 @@ function setupSettingsPanel() {
     cursorMotionBlurStrengthSlider.value = String(blurStrengthPercent);
     cursorMotionBlurStrengthValue.textContent = String(blurStrengthPercent);
     updateCursorMotionBlurVisibility();
-
-    // Initialize frame offset
-    const frameOffset = metadata.cursor.config.frameOffset || 0;
-    cursorFrameOffsetSlider.value = String(frameOffset);
-    cursorFrameOffsetValue.textContent = String(frameOffset);
   }
 
   if (metadata.zoom.config) {
@@ -447,16 +449,6 @@ function setupSettingsPanel() {
         };
       }
       metadata.cursor.config.motionBlur.strength = strength;
-      renderPreview();
-    }
-  });
-
-  // Frame offset setting
-  cursorFrameOffsetSlider.addEventListener('input', (e) => {
-    const value = (e.target as HTMLInputElement).value;
-    cursorFrameOffsetValue.textContent = value;
-    if (metadata) {
-      metadata.cursor.config.frameOffset = parseInt(value);
       renderPreview();
     }
   });
@@ -895,8 +887,18 @@ function updateStatus(message: string) {
  * Automatically create cursor keyframes from click events if there are clicks
  * but few or no cursor keyframes. This helps populate the editor with the
  * actual click positions from the recording.
+ *
+ * NOTE: This is only needed for legacy metadata that doesn't include all move events.
+ * New recordings include all mouse positions as keyframes.
  */
 function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
+  // Skip if we already have a good number of keyframes (new recordings include all positions)
+  const existingKeyframes = metadata.cursor.keyframes.length;
+  if (existingKeyframes > 100) {
+    logger.debug(`Skipping auto-create: ${existingKeyframes} keyframes already exist (sufficient coverage)`);
+    return;
+  }
+
   if (!metadata.clicks || metadata.clicks.length === 0) {
     return; // No clicks to convert
   }
@@ -914,7 +916,6 @@ function autoCreateKeyframesFromClicks(metadata: RecordingMetadata) {
 
   // Check if we should auto-create keyframes
   // Only create if there are significantly more clicks than keyframes
-  const existingKeyframes = metadata.cursor.keyframes.length;
   const clickCount = clicks.length;
 
   if (existingKeyframes >= clickCount) {

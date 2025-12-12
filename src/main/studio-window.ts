@@ -23,12 +23,18 @@ export function createStudioWindow(videoPath: string, metadataPath: string): voi
   // Get preload script path
   // In dev: dist/main/renderer/preload.js
   // In prod: dist/main/renderer/preload.js (same)
+  // In prod: dist/main/renderer/preload.js (same)
   const preloadPath = join(__dirname, '../renderer/preload.js');
   logger.debug('Preload path:', preloadPath);
+
+  const iconPath = isDev
+    ? join(__dirname, '../../../src/assets/logo.png')
+    : join(process.resourcesPath, 'assets/logo.png');
 
   studioWindow = new BrowserWindow({
     width: 1400,
     height: 900,
+    icon: iconPath,
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
@@ -44,17 +50,17 @@ export function createStudioWindow(videoPath: string, metadataPath: string): voi
   // Load studio HTML with video and metadata paths as URL parameters
   const videoPathEncoded = encodeURIComponent(videoPath);
   const metadataPathEncoded = encodeURIComponent(metadataPath);
-  
+
   // Define function to load from file (must be defined before use)
   const loadStudioFromFile = () => {
     if (!studioWindow || studioWindow.isDestroyed()) return;
-    
+
     // Load the built HTML file
     // __dirname is dist/main/main, so we need to go up to dist/renderer
     const htmlPath = join(__dirname, '../../renderer/studio.html');
     logger.info('Loading studio from file:', htmlPath);
     logger.debug('File exists:', existsSync(htmlPath));
-    
+
     if (!existsSync(htmlPath)) {
       logger.error('Studio HTML file not found at:', htmlPath);
       // Try alternative paths
@@ -78,14 +84,14 @@ export function createStudioWindow(videoPath: string, metadataPath: string): voi
       logger.error('Could not find studio.html in any expected location');
       return;
     }
-    
+
     studioWindow.loadFile(htmlPath, {
       query: { videoPath: videoPathEncoded, metadataPath: metadataPathEncoded },
     }).catch(err => {
       logger.error('Failed to load studio file:', err);
     });
   };
-  
+
   // Load studio HTML - try dev server first if in dev mode, otherwise load from file
   // IMPORTANT: Even in dev mode, if Vite isn't running, we need to load from file
   // The issue is that when Vite isn't running, loadURL fails silently or loads blank page
@@ -93,7 +99,7 @@ export function createStudioWindow(videoPath: string, metadataPath: string): voi
     // In dev mode, try Vite dev server first, but with immediate fallback if it fails
     const devUrl = `http://localhost:3000/studio.html?videoPath=${videoPathEncoded}&metadataPath=${metadataPathEncoded}`;
     logger.info('Attempting to load from dev server:', devUrl);
-    
+
     let fallbackTriggered = false;
     const triggerFallback = () => {
       if (fallbackTriggered) return;
@@ -103,13 +109,13 @@ export function createStudioWindow(videoPath: string, metadataPath: string): voi
         loadStudioFromFile();
       }
     };
-    
+
     // Set up error handler before loading
     const failHandler = (event: any, errorCode: number, errorDescription: string) => {
       logger.warn('Failed to load from dev server:', { errorCode, errorDescription });
       triggerFallback();
     };
-    
+
     // Set a timeout - if dev server doesn't respond quickly, use file
     const timeout = setTimeout(() => {
       logger.warn('Dev server timeout - using file fallback');
@@ -118,7 +124,7 @@ export function createStudioWindow(videoPath: string, metadataPath: string): voi
       }
       triggerFallback();
     }, 1500);
-    
+
     studioWindow.webContents.once('did-fail-load', failHandler);
     studioWindow.webContents.once('did-finish-load', () => {
       clearTimeout(timeout);
@@ -126,7 +132,7 @@ export function createStudioWindow(videoPath: string, metadataPath: string): voi
         studioWindow.webContents.removeListener('did-fail-load', failHandler);
       }
     });
-    
+
     studioWindow.loadURL(devUrl).catch(err => {
       logger.error('Failed to load studio URL:', err);
       clearTimeout(timeout);
@@ -139,7 +145,7 @@ export function createStudioWindow(videoPath: string, metadataPath: string): voi
     // In production, load from file directly
     loadStudioFromFile();
   }
-  
+
   // Wait for window to be ready
   studioWindow.webContents.once('did-finish-load', () => {
     logger.info('Studio window loaded');
@@ -159,12 +165,12 @@ export function createStudioWindow(videoPath: string, metadataPath: string): voi
       });
     }, 100);
   });
-  
+
   // Log any console messages from renderer
   studioWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
     logger.debug(`[Renderer ${level}]:`, message);
   });
-  
+
   // Log page errors
   studioWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
     logger.error('Studio window failed to load:', { errorCode, errorDescription, validatedURL });

@@ -1,8 +1,9 @@
-import { spawn } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import { join, dirname } from 'path';
 import { existsSync } from 'fs';
 import { app } from 'electron';
 import { createLogger } from '../utils/logger';
+import { createInterface, Interface } from 'readline';
 
 const logger = createLogger('MouseTelemetry');
 
@@ -19,10 +20,16 @@ export interface MouseTelemetryData {
   };
 }
 
-// Cache for telemetry data to avoid excessive binary calls
+// Streaming mode state
+let streamingProcess: ChildProcess | null = null;
+let streamingReader: Interface | null = null;
+let latestData: MouseTelemetryData | null = null;
+let isStreaming = false;
+
+// Fallback: Cache for single-shot telemetry data
 let cachedData: MouseTelemetryData | null = null;
 let lastCheckTime = 0;
-const CACHE_DURATION = 8; // ms
+const CACHE_DURATION = 4; // ms - keep low for high sample rate
 let binaryPath: string | null = null;
 
 /**
@@ -91,10 +98,105 @@ function findBinaryPath(): string {
 }
 
 /**
- * Get all mouse telemetry data in a single call
- * Returns cursor type, button states, and position
+ * Start streaming telemetry from the binary
+ * This runs the binary once and continuously reads data at high frequency
+ */
+export function startTelemetryStream(): void {
+  if (isStreaming) {
+    logger.debug('[STREAM] Already streaming');
+    return;
+  }
+
+  try {
+    const binPath = findBinaryPath();
+    logger.info('[STREAM] Starting telemetry stream');
+
+    streamingProcess = spawn(binPath, ['--stream'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    isStreaming = true;
+
+    streamingReader = createInterface({
+      input: streamingProcess.stdout!,
+      crlfDelay: Infinity,
+    });
+
+    streamingReader.on('line', (line) => {
+      try {
+        const data: MouseTelemetryData = JSON.parse(line);
+        latestData = data;
+      } catch {
+        // Ignore parse errors
+      }
+    });
+
+    streamingProcess.on('close', (code) => {
+      logger.info(`[STREAM] Process closed with code ${code}`);
+      isStreaming = false;
+      streamingProcess = null;
+      streamingReader = null;
+    });
+
+    streamingProcess.on('error', (error) => {
+      logger.error('[STREAM] Process error:', error);
+      isStreaming = false;
+      streamingProcess = null;
+      streamingReader = null;
+    });
+
+    streamingProcess.stderr?.on('data', (data) => {
+      logger.debug('[STREAM] stderr:', data.toString());
+    });
+
+  } catch (error) {
+    logger.error('[STREAM] Failed to start:', error);
+    isStreaming = false;
+  }
+}
+
+/**
+ * Stop the telemetry stream
+ */
+export function stopTelemetryStream(): void {
+  if (!isStreaming || !streamingProcess) {
+    return;
+  }
+
+  logger.info('[STREAM] Stopping telemetry stream');
+  isStreaming = false;
+
+  if (streamingReader) {
+    streamingReader.close();
+    streamingReader = null;
+  }
+
+  if (streamingProcess) {
+    streamingProcess.kill();
+    streamingProcess = null;
+  }
+
+  latestData = null;
+}
+
+/**
+ * Check if streaming is active
+ */
+export function isStreamingActive(): boolean {
+  return isStreaming;
+}
+
+/**
+ * Get all mouse telemetry data
+ * Uses streaming mode if active, otherwise falls back to single-shot
  */
 export async function getMouseTelemetry(): Promise<MouseTelemetryData> {
+  // If streaming, return latest data immediately
+  if (isStreaming && latestData) {
+    return latestData;
+  }
+
+  // Fallback to single-shot mode
   const now = Date.now();
 
   // Return cached result if still fresh

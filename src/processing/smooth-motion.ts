@@ -58,23 +58,24 @@ export const SPRING_PRESETS = {
 /**
  * Animation style presets (Screen Studio-like)
  * Maps to smooth time values for SmoothDamp algorithm
+ * Higher smoothTime = smoother/slower cursor following
  */
 export const ANIMATION_STYLES = {
   slow: {
-    smoothTime: 0.60, // Very slow, dramatic
-    minSmoothTime: 0.20,
+    smoothTime: 0.45, // Very slow, dramatic
+    minSmoothTime: 0.15,
   },
   mellow: {
-    smoothTime: 0.35, // Professional, balanced (default)
-    minSmoothTime: 0.12,
+    smoothTime: 0.25, // Professional, balanced (default) - Screen Studio-like
+    minSmoothTime: 0.08,
   },
   quick: {
-    smoothTime: 0.18, // Responsive but still smooth
-    minSmoothTime: 0.06,
+    smoothTime: 0.12, // Responsive but still smooth
+    minSmoothTime: 0.04,
   },
   rapid: {
-    smoothTime: 0.10, // Very fast, minimal smoothing
-    minSmoothTime: 0.03,
+    smoothTime: 0.06, // Very fast, minimal smoothing
+    minSmoothTime: 0.02,
   },
 } as const;
 

@@ -6,8 +6,6 @@ import type { RecordingMetadata, CursorKeyframe, ClickEvent, VideoInfo } from '.
 import type { ZoomSection } from './zoom-tracker';
 import { getVideoDimensions } from './video-utils';
 import { createLogger } from '../utils/logger';
-import { DEFAULT_CURSOR_FRAME_OFFSET } from '../utils/constants';
-
 const logger = createLogger('MetadataExporter');
 
 const METADATA_VERSION = '1.0.0';
@@ -26,47 +24,6 @@ function toCursorShape(cursorType: string | undefined): CursorShape {
     'poof', 'screenshot', 'zoomin', 'zoomout'
   ];
   return validShapes.includes(cursorType as CursorShape) ? (cursorType as CursorShape) : 'arrow';
-}
-
-/**
- * Apply frame offset to metadata timestamps
- * Shifts all timestamps (cursor keyframes, zoom keyframes, clicks) forward by the frame offset
- * This makes the cursor appear earlier in the video timeline
- */
-export function applyFrameOffsetToMetadata(
-  metadata: RecordingMetadata,
-  frameOffset: number = DEFAULT_CURSOR_FRAME_OFFSET
-): RecordingMetadata {
-  const frameRate = metadata.video.frameRate;
-  const frameInterval = 1000 / frameRate;
-  const offsetMs = frameOffset * frameInterval;
-
-  // Create a copy of metadata to avoid mutating the original
-  const adjustedMetadata: RecordingMetadata = {
-    ...metadata,
-    cursor: {
-      ...metadata.cursor,
-      keyframes: metadata.cursor.keyframes.map(kf => ({
-        ...kf,
-        timestamp: Math.max(0, kf.timestamp + offsetMs),
-      })),
-    },
-    zoom: {
-      ...metadata.zoom,
-      sections: metadata.zoom.sections.map(section => ({
-        ...section,
-        startTime: Math.max(0, section.startTime + offsetMs),
-        endTime: Math.max(0, section.endTime + offsetMs),
-      })),
-    },
-    clicks: metadata.clicks.map(click => ({
-      ...click,
-      timestamp: Math.max(0, click.timestamp + offsetMs),
-    })),
-  };
-
-  logger.debug(`Applied frame offset of ${frameOffset} frames (${offsetMs.toFixed(2)}ms) to metadata timestamps`);
-  return adjustedMetadata;
 }
 
 /**
@@ -107,50 +64,44 @@ function convertMouseEventsToKeyframes(
     }
   }
 
-  // Track all move events with cursor type changes
+  // Track all move events - include ALL positions for smooth cursor movement
   const moveEvents = mouseEvents.filter(e => e.action === 'move');
 
   if (moveEvents.length > 0) {
-    const firstMove = moveEvents[0];
-    const lastMove = moveEvents[moveEvents.length - 1];
-
-    // Convert screen coordinates to video coordinates
-    const firstPos = convertCoords(firstMove.x, firstMove.y);
-    const lastPos = convertCoords(lastMove.x, lastMove.y);
-
-    // Start keyframe at timestamp 0 (beginning of video)
-    cursorKeyframes.push({
-      timestamp: 0,
-      x: firstPos.x,
-      y: firstPos.y,
-      shape: toCursorShape(firstMove.cursorType),
-      easing: 'easeInOut', // Default easing for the segment
-    });
-
-    // Add keyframes for cursor type changes
-    let lastCursorType = firstMove.cursorType;
+    // Add ALL move events as keyframes for smooth cursor tracking
+    // This preserves the high-frequency telemetry data
     for (const event of moveEvents) {
-      if (event.cursorType && event.cursorType !== lastCursorType) {
-        const pos = convertCoords(event.x, event.y);
-        cursorKeyframes.push({
-          timestamp: event.timestamp,
-          x: pos.x,
-          y: pos.y,
-          shape: toCursorShape(event.cursorType),
-          easing: 'easeInOut',
-        });
-        lastCursorType = event.cursorType;
-      }
+      const pos = convertCoords(event.x, event.y);
+      cursorKeyframes.push({
+        timestamp: event.timestamp,
+        x: pos.x,
+        y: pos.y,
+        shape: toCursorShape(event.cursorType),
+        // Use linear easing for smooth interpolation between dense samples
+        easing: 'linear',
+      });
     }
 
-    // End keyframe at video duration (end of video)
-    // Only add if position changed or we have a valid duration
-    if (videoDuration > 0 && (firstPos.x !== lastPos.x || firstPos.y !== lastPos.y || videoDuration > firstMove.timestamp)) {
+    // Ensure we have a keyframe at timestamp 0 if the first event doesn't start there
+    if (cursorKeyframes.length > 0 && cursorKeyframes[0].timestamp > 0) {
+      const firstPos = convertCoords(moveEvents[0].x, moveEvents[0].y);
+      cursorKeyframes.unshift({
+        timestamp: 0,
+        x: firstPos.x,
+        y: firstPos.y,
+        shape: toCursorShape(moveEvents[0].cursorType),
+        easing: 'linear',
+      });
+    }
+
+    // Ensure we have a keyframe at video duration
+    const lastKeyframe = cursorKeyframes[cursorKeyframes.length - 1];
+    if (videoDuration > 0 && lastKeyframe && lastKeyframe.timestamp < videoDuration) {
       cursorKeyframes.push({
         timestamp: videoDuration,
-        x: lastPos.x,
-        y: lastPos.y,
-        shape: toCursorShape(lastMove.cursorType),
+        x: lastKeyframe.x,
+        y: lastKeyframe.y,
+        shape: lastKeyframe.shape,
       });
     }
   } else if (mouseEvents.length > 0) {
@@ -162,7 +113,7 @@ function convertMouseEventsToKeyframes(
       x: firstPos.x,
       y: firstPos.y,
       shape: toCursorShape(firstEvent.cursorType),
-      easing: 'easeInOut',
+      easing: 'linear',
     });
 
     // Add end keyframe at video duration
@@ -349,7 +300,8 @@ export class MetadataExporter {
   }
 
   /**
-   * Load metadata from JSON file and apply frame offset to timestamps
+   * Load metadata from JSON file
+   * Note: Frame offset is applied at render time via cursor.config.frameOffset, not here
    */
   static loadMetadata(metadataPath: string): RecordingMetadata {
     const { readFileSync } = require('fs');
@@ -357,10 +309,7 @@ export class MetadataExporter {
       const data = readFileSync(metadataPath, 'utf-8');
       const metadata = JSON.parse(data) as RecordingMetadata;
       logger.info(`Metadata loaded from: ${metadataPath}`);
-
-      // Apply frame offset to all timestamps
-      const adjustedMetadata = applyFrameOffsetToMetadata(metadata);
-      return adjustedMetadata;
+      return metadata;
     } catch (error) {
       logger.error('Failed to load metadata:', error);
       throw new Error(`Failed to load metadata: ${error instanceof Error ? error.message : String(error)}`);

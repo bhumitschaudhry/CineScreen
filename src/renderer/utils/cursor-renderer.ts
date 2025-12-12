@@ -1,9 +1,142 @@
 import type { RecordingMetadata, CursorKeyframe, EasingType } from '../../types/metadata';
 import { easeInOut, easeIn, easeOut } from '../../processing/effects';
-import { 
+import {
   CURSOR_CLICK_ANIMATION_DURATION_MS,
-  CURSOR_CLICK_ANIMATION_SCALE
+  CURSOR_CLICK_ANIMATION_SCALE,
 } from '../../utils/constants';
+
+/**
+ * Reset smoothing state (no-op, kept for API compatibility)
+ */
+export function resetCursorSmoothing(): void {
+  // No smoothing state to reset - cursor position comes directly from keyframes
+}
+
+// Import cursor SVG assets (using new asset file names)
+import defaultSvg from '../../assets/default.svg';
+import handpointingSvg from '../../assets/handpointing.svg';
+import handopenSvg from '../../assets/handopen.svg';
+import handgrabbingSvg from '../../assets/handgrabbing.svg';
+import moveSvg from '../../assets/move.svg';
+import copySvg from '../../assets/copy.svg';
+import notallowedSvg from '../../assets/notallowed.svg';
+import helpSvg from '../../assets/help.svg';
+import textcursorSvg from '../../assets/textcursor.svg';
+import textcursorverticalSvg from '../../assets/textcursorvertical.svg';
+import crossSvg from '../../assets/cross.svg';
+import contextmenumenuSvg from '../../assets/contextualmenu.svg';
+import resizeleftrightSvg from '../../assets/resizeleftright.svg';
+import resizeupdownSvg from '../../assets/resizeupdown.svg';
+import resizenortheastsouthwestSvg from '../../assets/resizenortheastsouthwest.svg';
+import resizenorthwestsoutheastSvg from '../../assets/resizenorthwestsoutheast.svg';
+import zoominSvg from '../../assets/zoomin.svg';
+import zoomoutSvg from '../../assets/zoomout.svg';
+import poofSvg from '../../assets/poof.svg';
+import screenshotselectionSvg from '../../assets/screenshotselection.svg';
+
+/**
+ * Map cursor shape names to SVG imports
+ */
+const CURSOR_SVG_MAP: Record<string, string> = {
+  // Standard cursors
+  arrow: defaultSvg,
+  pointer: handpointingSvg,
+  hand: handopenSvg,
+  openhand: handopenSvg,
+  closedhand: handgrabbingSvg,
+  crosshair: crossSvg,
+  ibeam: textcursorSvg,
+  ibeamvertical: textcursorverticalSvg,
+
+  // Resize cursors
+  move: moveSvg,
+  resizeleft: resizeleftrightSvg,
+  resizeright: resizeleftrightSvg,
+  resizeleftright: resizeleftrightSvg,
+  resizeup: resizeupdownSvg,
+  resizedown: resizeupdownSvg,
+  resizeupdown: resizeupdownSvg,
+  resize: resizenortheastsouthwestSvg,
+  resizenortheast: resizenortheastsouthwestSvg,
+  resizesouthwest: resizenortheastsouthwestSvg,
+  resizenorthwest: resizenorthwestsoutheastSvg,
+  resizesoutheast: resizenorthwestsoutheastSvg,
+
+  // Action cursors
+  copy: copySvg,
+  dragcopy: copySvg,
+  draglink: defaultSvg,
+  help: helpSvg,
+  notallowed: notallowedSvg,
+  contextmenu: contextmenumenuSvg,
+  poof: poofSvg,
+
+  // Zoom/screenshot cursors
+  zoomin: zoominSvg,
+  zoomout: zoomoutSvg,
+  screenshot: screenshotselectionSvg,
+};
+
+// Cache for loaded cursor images
+const cursorImageCache: Map<string, HTMLImageElement> = new Map();
+
+/**
+ * Load cursor image from SVG path
+ */
+function loadCursorImage(svgPath: string): Promise<HTMLImageElement> {
+  const cached = cursorImageCache.get(svgPath);
+  if (cached) {
+    if (cached.complete && cached.naturalWidth > 0) {
+      return Promise.resolve(cached);
+    }
+    return new Promise((resolve, reject) => {
+      cached.onload = () => resolve(cached);
+      cached.onerror = reject;
+    });
+  }
+
+  const img = new Image();
+  cursorImageCache.set(svgPath, img);
+
+  return new Promise((resolve, reject) => {
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = svgPath;
+  });
+}
+
+/**
+ * Get cursor image for a shape (returns cached image or arrow fallback)
+ */
+function getCursorImage(shape: string): HTMLImageElement | null {
+  const svgPath = CURSOR_SVG_MAP[shape] || CURSOR_SVG_MAP.arrow;
+  const cached = cursorImageCache.get(svgPath);
+
+  if (cached && cached.complete && cached.naturalWidth > 0) {
+    return cached;
+  }
+
+  // Fallback to arrow if specific shape not ready
+  if (shape !== 'arrow') {
+    const arrowCached = cursorImageCache.get(CURSOR_SVG_MAP.arrow);
+    if (arrowCached && arrowCached.complete && arrowCached.naturalWidth > 0) {
+      return arrowCached;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Preload all cursor images
+ */
+function preloadCursorImages(): void {
+  const uniqueSvgs = [...new Set(Object.values(CURSOR_SVG_MAP))];
+  uniqueSvgs.forEach(svg => loadCursorImage(svg).catch(() => {}));
+}
+
+// Start preloading immediately
+preloadCursorImages();
 
 /**
  * Apply easing function based on type
@@ -72,8 +205,9 @@ export function interpolateCursorPosition(
   // Interpolate between keyframes
   const timeDiff = nextKeyframe.timestamp - prevKeyframe.timestamp;
   const t = timeDiff > 0 ? (timestamp - prevKeyframe.timestamp) / timeDiff : 0;
-  // Use easing from start keyframe, or default to easeInOut
-  const easingType: EasingType = prevKeyframe.easing || 'easeInOut';
+  // Use easing from start keyframe, or default to linear for smooth motion
+  // (easeInOut between many keyframes causes stuttering)
+  const easingType: EasingType = prevKeyframe.easing || 'linear';
   const easedT = applyEasing(t, easingType);
 
   const x = prevKeyframe.x + (nextKeyframe.x - prevKeyframe.x) * easedT;
@@ -152,15 +286,8 @@ export function renderCursor(
   // Clear canvas
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Apply frame offset if configured
-  // Frame offset shifts the cursor timing: positive = cursor appears earlier (look ahead), negative = cursor appears later (look back)
-  const frameOffset = metadata.cursor.config.frameOffset || 0;
-  const frameRate = metadata.video.frameRate || 30; // Default to 30 fps if not available
-  const frameOffsetMs = (frameOffset / frameRate) * 1000; // Convert frames to milliseconds
-  const adjustedTimestamp = timestamp + frameOffsetMs;
-
-  // Get cursor position at adjusted timestamp
-  const cursorPos = interpolateCursorPosition(metadata.cursor.keyframes, adjustedTimestamp);
+  // Get cursor position at current timestamp (no offset - direct match with video)
+  const cursorPos = interpolateCursorPosition(metadata.cursor.keyframes, timestamp);
   if (!cursorPos) return;
 
   // Calculate uniform scale factor to maintain aspect ratio
@@ -175,229 +302,72 @@ export function renderCursor(
   const offsetX = (displayWidth - actualDisplayWidth) / 2;
   const offsetY = (displayHeight - actualDisplayHeight) / 2;
 
-  // Scale cursor position to display coordinates with offset
-  const x = cursorPos.x * scale + offsetX;
-  const y = cursorPos.y * scale + offsetY;
-
   // Get cursor config
   const config = metadata.cursor.config;
   const size = cursorPos.size || config.size || 60;
   const shape = cursorPos.shape || config.shape || 'arrow';
-  const color = cursorPos.color || config.color || '#000000';
 
-  // Calculate click animation scale
+  // Check if currently clicking (within animation duration)
   const clickAnimationScale = calculateClickAnimationScale(timestamp, metadata.clicks || []);
+
+  // Use cursor position directly from keyframes (no additional smoothing)
+  // Keyframes already contain high-frequency telemetry data with linear interpolation
+  const x = cursorPos.x * scale + offsetX;
+  const y = cursorPos.y * scale + offsetY;
 
   // Scale cursor size (base scale * click animation scale)
   const cursorSize = size * scale * clickAnimationScale;
 
-  // Draw cursor (simplified - in production you'd load the actual cursor SVG/image)
-  drawCursorShape(ctx, x, y, cursorSize, shape, color);
+  // Draw cursor using actual SVG assets
+  drawCursorShape(ctx, x, y, cursorSize, shape);
 }
 
 /**
- * Draw cursor shape on canvas
+ * Draw a simple arrow cursor as fallback
+ */
+function drawFallbackArrowCursor(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number
+): void {
+  const scale = size / 28; // Match SVG viewBox size
+  ctx.fillStyle = '#000000';
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1 * scale;
+
+  ctx.beginPath();
+  // Match the cursor.svg path approximately
+  ctx.moveTo(x + 8.2 * scale, y + 4.9 * scale);
+  ctx.lineTo(x + 8.2 * scale, y + 20.9 * scale);
+  ctx.lineTo(x + 12.6 * scale, y + 16.6 * scale);
+  ctx.lineTo(x + 13 * scale, y + 16.5 * scale);
+  ctx.lineTo(x + 19.8 * scale, y + 16.5 * scale);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+}
+
+/**
+ * Draw cursor shape on canvas using actual SVG assets
  */
 function drawCursorShape(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   size: number,
-  shape: string,
-  color: string
+  shape: string
 ): void {
   ctx.save();
-  ctx.fillStyle = color;
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 2;
 
-  switch (shape) {
-    case 'arrow':
-    case 'ibeam':
-    case 'ibeamvertical':
-    case 'draglink':
-    case 'contextmenu':
-      drawArrowCursor(ctx, x, y, size);
-      break;
-    case 'pointer':
-      drawPointerCursor(ctx, x, y, size);
-      break;
-    case 'hand':
-    case 'openhand':
-      drawHandCursor(ctx, x, y, size);
-      break;
-    case 'closedhand':
-      drawClosedHandCursor(ctx, x, y, size);
-      break;
-    case 'crosshair':
-      drawCrosshairCursor(ctx, x, y, size);
-      break;
-    case 'move':
-    case 'resizeleft':
-    case 'resizeright':
-    case 'resizeleftright':
-    case 'resizeup':
-    case 'resizedown':
-    case 'resizeupdown':
-    case 'resize':
-      drawMoveCursor(ctx, x, y, size);
-      break;
-    case 'copy':
-    case 'dragcopy':
-      drawCopyCursor(ctx, x, y, size);
-      break;
-    case 'notallowed':
-      drawNotAllowedCursor(ctx, x, y, size);
-      break;
-    case 'help':
-      drawHelpCursor(ctx, x, y, size);
-      break;
-    default:
-      drawArrowCursor(ctx, x, y, size);
+  const cursorImage = getCursorImage(shape);
+
+  if (cursorImage) {
+    ctx.drawImage(cursorImage, x, y, size, size);
+  } else {
+    drawFallbackArrowCursor(ctx, x, y, size);
   }
 
   ctx.restore();
-}
-
-function drawArrowCursor(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
-  const scale = size / 20;
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x + 16 * scale, y + 4 * scale);
-  ctx.lineTo(x + 12 * scale, y + 8 * scale);
-  ctx.lineTo(x + 18 * scale, y + 14 * scale);
-  ctx.lineTo(x + 14 * scale, y + 16 * scale);
-  ctx.lineTo(x + 8 * scale, y + 10 * scale);
-  ctx.lineTo(x + 4 * scale, y + 16 * scale);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-}
-
-function drawPointerCursor(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
-  const scale = size / 20;
-  ctx.beginPath();
-  ctx.moveTo(x + 2 * scale, y + 2 * scale);
-  ctx.lineTo(x + 14 * scale, y + 2 * scale);
-  ctx.lineTo(x + 14 * scale, y + 8 * scale);
-  ctx.lineTo(x + 18 * scale, y + 8 * scale);
-  ctx.lineTo(x + 10 * scale, y + 18 * scale);
-  ctx.lineTo(x + 8 * scale, y + 14 * scale);
-  ctx.lineTo(x + 2 * scale, y + 14 * scale);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-}
-
-function drawHandCursor(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
-  // Simplified hand cursor
-  const scale = size / 20;
-  ctx.beginPath();
-  ctx.arc(x + 10 * scale, y + 10 * scale, 8 * scale, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-}
-
-function drawCrosshairCursor(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
-  const scale = size / 20;
-  const center = 10 * scale;
-  ctx.beginPath();
-  ctx.moveTo(x + center, y + 2 * scale);
-  ctx.lineTo(x + center, y + 8 * scale);
-  ctx.moveTo(x + center, y + 12 * scale);
-  ctx.lineTo(x + center, y + 18 * scale);
-  ctx.moveTo(x + 2 * scale, y + center);
-  ctx.lineTo(x + 8 * scale, y + center);
-  ctx.moveTo(x + 12 * scale, y + center);
-  ctx.lineTo(x + 18 * scale, y + center);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(x + center, y + center, 1.5 * scale, 0, Math.PI * 2);
-  ctx.fill();
-}
-
-function drawClosedHandCursor(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
-  const scale = size / 20;
-  ctx.beginPath();
-  // Draw a closed fist shape
-  ctx.ellipse(x + 10 * scale, y + 12 * scale, 7 * scale, 5 * scale, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-}
-
-function drawMoveCursor(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
-  const scale = size / 20;
-  const cx = x + 10 * scale;
-  const cy = y + 10 * scale;
-
-  // Draw four arrows pointing in each direction
-  ctx.beginPath();
-  // Up arrow
-  ctx.moveTo(cx, cy - 8 * scale);
-  ctx.lineTo(cx - 3 * scale, cy - 4 * scale);
-  ctx.moveTo(cx, cy - 8 * scale);
-  ctx.lineTo(cx + 3 * scale, cy - 4 * scale);
-  ctx.moveTo(cx, cy - 8 * scale);
-  ctx.lineTo(cx, cy - 2 * scale);
-  // Down arrow
-  ctx.moveTo(cx, cy + 8 * scale);
-  ctx.lineTo(cx - 3 * scale, cy + 4 * scale);
-  ctx.moveTo(cx, cy + 8 * scale);
-  ctx.lineTo(cx + 3 * scale, cy + 4 * scale);
-  ctx.moveTo(cx, cy + 8 * scale);
-  ctx.lineTo(cx, cy + 2 * scale);
-  // Left arrow
-  ctx.moveTo(cx - 8 * scale, cy);
-  ctx.lineTo(cx - 4 * scale, cy - 3 * scale);
-  ctx.moveTo(cx - 8 * scale, cy);
-  ctx.lineTo(cx - 4 * scale, cy + 3 * scale);
-  ctx.moveTo(cx - 8 * scale, cy);
-  ctx.lineTo(cx - 2 * scale, cy);
-  // Right arrow
-  ctx.moveTo(cx + 8 * scale, cy);
-  ctx.lineTo(cx + 4 * scale, cy - 3 * scale);
-  ctx.moveTo(cx + 8 * scale, cy);
-  ctx.lineTo(cx + 4 * scale, cy + 3 * scale);
-  ctx.moveTo(cx + 8 * scale, cy);
-  ctx.lineTo(cx + 2 * scale, cy);
-  ctx.stroke();
-}
-
-function drawCopyCursor(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
-  const scale = size / 20;
-  // Draw arrow first
-  drawArrowCursor(ctx, x, y, size * 0.7);
-  // Draw plus sign
-  ctx.beginPath();
-  ctx.moveTo(x + 14 * scale, y + 10 * scale);
-  ctx.lineTo(x + 14 * scale, y + 18 * scale);
-  ctx.moveTo(x + 10 * scale, y + 14 * scale);
-  ctx.lineTo(x + 18 * scale, y + 14 * scale);
-  ctx.stroke();
-}
-
-function drawNotAllowedCursor(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
-  const scale = size / 20;
-  const cx = x + 10 * scale;
-  const cy = y + 10 * scale;
-  const radius = 8 * scale;
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.stroke();
-  // Draw diagonal line
-  ctx.beginPath();
-  ctx.moveTo(cx - 5.6 * scale, cy - 5.6 * scale);
-  ctx.lineTo(cx + 5.6 * scale, cy + 5.6 * scale);
-  ctx.stroke();
-}
-
-function drawHelpCursor(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
-  const scale = size / 20;
-  // Draw arrow first
-  drawArrowCursor(ctx, x, y, size * 0.7);
-  // Draw question mark
-  ctx.font = `${12 * scale}px sans-serif`;
-  ctx.fillText('?', x + 12 * scale, y + 18 * scale);
 }
 

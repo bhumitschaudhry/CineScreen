@@ -64,7 +64,6 @@ export interface CursorConfig {
   };
   hideWhenStatic?: boolean; // Hide cursor when not moving
   loopPosition?: boolean; // Return cursor to initial position at end
-  frameOffset?: number; // Offset cursor timing by N frames (can be negative)
 }
 
 export interface RecordingState {

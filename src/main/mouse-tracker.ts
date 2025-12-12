@@ -1,6 +1,6 @@
 import { writeFileSync, readFileSync } from 'fs';
 import type { MouseEvent } from '../types';
-import { getMouseTelemetry } from '../processing/mouse-telemetry';
+import { getMouseTelemetry, startTelemetryStream, stopTelemetryStream } from '../processing/mouse-telemetry';
 import { createLogger } from '../utils/logger';
 
 const logger = createLogger('MouseTracker');
@@ -28,6 +28,9 @@ export class MouseTracker {
     this.events = [];
     this.startTime = Date.now();
 
+    // Start streaming mode for high-frequency telemetry
+    startTelemetryStream();
+
     // Get initial telemetry data
     try {
       const initialTelemetry = await getMouseTelemetry();
@@ -42,8 +45,9 @@ export class MouseTracker {
       this.lastButtonState = { left: false, right: false, middle: false };
     }
 
-    // Track mouse position at high frequency (60Hz = ~16ms intervals)
-    const interval = 16; // milliseconds
+    // Track mouse position at high frequency (120Hz = ~8ms intervals)
+    // Note: actual rate may be lower due to process spawn overhead
+    const interval = 8; // milliseconds
     let iterationCount = 0;
     const logInterval = 100; // Log summary every 100 iterations (~1.6 seconds)
 
@@ -144,6 +148,9 @@ export class MouseTracker {
       clearTimeout(this.trackingInterval);
       this.trackingInterval = undefined;
     }
+
+    // Stop streaming mode
+    stopTelemetryStream();
 
     const clickEvents = this.events.filter(e => e.action === 'down' || e.action === 'up');
     const moveEvents = this.events.filter(e => e.action === 'move');

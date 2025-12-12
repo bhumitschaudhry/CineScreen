@@ -114,32 +114,36 @@ function getAssetsDir(): string {
  */
 const CURSOR_SHAPE_MAP: Record<string, string> = {
   // Standard cursors
-  arrow: 'cursor.svg',
-  pointer: 'pointinghand.svg',
-  hand: 'openhand.svg',
-  openhand: 'openhand.svg',
-  closedhand: 'closedhand.svg',
-  crosshair: 'cursor.svg', // Use cursor as fallback
-  ibeam: 'cursor.svg', // Text cursor - use arrow as fallback
-  ibeamvertical: 'cursor.svg',
+  arrow: 'default.svg',
+  pointer: 'handpointing.svg',
+  hand: 'handopen.svg',
+  openhand: 'handopen.svg',
+  closedhand: 'handgrabbing.svg',
+  crosshair: 'cross.svg',
+  ibeam: 'textcursor.svg',
+  ibeamvertical: 'textcursorvertical.svg',
 
   // Resize cursors
   move: 'move.svg',
-  resizeleft: 'resizenortheastsouthwest.svg',
-  resizeright: 'resizenortheastsouthwest.svg',
-  resizeleftright: 'resizenortheastsouthwest.svg',
-  resizeup: 'resizenortheastsouthwest.svg',
-  resizedown: 'resizenortheastsouthwest.svg',
-  resizeupdown: 'resizenortheastsouthwest.svg',
+  resizeleft: 'resizeleftright.svg',
+  resizeright: 'resizeleftright.svg',
+  resizeleftright: 'resizeleftright.svg',
+  resizeup: 'resizeupdown.svg',
+  resizedown: 'resizeupdown.svg',
+  resizeupdown: 'resizeupdown.svg',
   resize: 'resizenortheastsouthwest.svg',
+  resizenortheast: 'resizenortheastsouthwest.svg',
+  resizesouthwest: 'resizenortheastsouthwest.svg',
+  resizenorthwest: 'resizenorthwestsoutheast.svg',
+  resizesoutheast: 'resizenorthwestsoutheast.svg',
 
   // Action cursors
   copy: 'copy.svg',
   dragcopy: 'copy.svg',
-  draglink: 'cursor.svg',
+  draglink: 'default.svg',
   help: 'help.svg',
   notallowed: 'notallowed.svg',
-  contextmenu: 'cursor.svg',
+  contextmenu: 'contextualmenu.svg',
   poof: 'poof.svg',
 
   // Screenshot/zoom cursors
