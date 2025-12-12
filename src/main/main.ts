@@ -34,9 +34,14 @@ function createWindow(): void {
     ? join(__dirname, '../renderer/preload.js') // In dev, preload is compiled to dist/main/renderer
     : join(__dirname, '../renderer/preload.js');
 
+  const iconPath = isDev
+    ? join(__dirname, '../../../src/assets/logo.png')
+    : join(process.resourcesPath, 'assets/logo.png');
+
   mainWindow = new BrowserWindow({
     width: 500,
     height: 800,
+    icon: iconPath,
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,

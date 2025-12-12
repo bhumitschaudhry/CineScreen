@@ -57,10 +57,10 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
-        "NSCameraUsageDescription": "This app needs camera access for screen recording features.",
         "NSMicrophoneUsageDescription": "This app needs microphone access for screen recording with audio.",
         "NSHighResolutionCapable": true
-      }
+      },
+      "icon": "build/icon.png"
     },
     "files": [
       "dist/**/*",

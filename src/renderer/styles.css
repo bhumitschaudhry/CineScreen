@@ -127,6 +127,12 @@ h2 {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
+.app-logo {
+  width: 80px;
+  height: 80px;
+  margin-bottom: 15px;
+}
+
 .btn-danger {
   background: #e74c3c;
   color: white;
@@ -214,13 +220,13 @@ h2 {
   cursor: pointer;
 }
 
-.setting-item > label:not(:has(input[type="checkbox"])) {
+.setting-item>label:not(:has(input[type="checkbox"])) {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.setting-item > label:not(:has(input[type="checkbox"])) span {
+.setting-item>label:not(:has(input[type="checkbox"])) span {
   font-weight: normal;
   color: #999;
   font-size: 13px;
@@ -366,4 +372,3 @@ h2 {
   color: #ccc;
   font-weight: 500;
 }
-
