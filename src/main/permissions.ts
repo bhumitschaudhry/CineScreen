@@ -1,62 +1,64 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { systemPreferences } from 'electron';
+import {
+  hasScreenCapturePermission,
+  hasPromptedForPermission,
+  openSystemPreferences
+} from 'mac-screen-capture-permissions';
 import type { PermissionStatus } from '../types';
+import { createLogger } from '../utils/logger';
 
 const execAsync = promisify(exec);
+const logger = createLogger('Permissions');
 
 /**
  * Check if screen recording permission is granted
+ * Uses mac-screen-capture-permissions for reliable detection
  */
-export async function checkScreenRecordingPermission(): Promise<boolean> {
+export function checkScreenRecordingPermission(): boolean {
   try {
-    // On macOS, we can check by trying to list screen capture devices
-    // If permission is not granted, this will fail
-    const { stdout } = await execAsync(
-      'system_profiler SPAudioDataType 2>&1 || echo "permission_denied"'
-    );
-    // More reliable: check via AppleScript or direct API
-    // For now, we'll use a simpler approach - try to get screen info
-    const result = await execAsync(
-      'osascript -e "tell application \\"System Events\\" to get name of every process" 2>&1'
-    );
-    return !result.stdout.includes('not allowed');
+    const granted = hasScreenCapturePermission();
+    logger.info(`Screen recording permission: ${granted ? 'granted' : 'denied'}`);
+    return granted;
   } catch (error) {
+    logger.error('Failed to check screen recording permission:', error);
     return false;
   }
 }
 
 /**
  * Check if accessibility permission is granted
+ * Uses Electron's native API
  */
-export async function checkAccessibilityPermission(): Promise<boolean> {
+export function checkAccessibilityPermission(): boolean {
   try {
-    // Check if we can access accessibility APIs
-    const { stdout } = await execAsync(
-      'osascript -e "tell application \\"System Events\\" to get name of every process" 2>&1'
-    );
-    return !stdout.includes('not allowed') && !stdout.includes('denied');
+    const granted = systemPreferences.isTrustedAccessibilityClient(false);
+    logger.info(`Accessibility permission: ${granted ? 'granted' : 'denied'}`);
+    return granted;
   } catch (error) {
+    logger.error('Failed to check accessibility permission:', error);
     return false;
   }
 }
 
 /**
  * Request screen recording permission
- * Note: This will open System Preferences
+ * Opens System Preferences to the Screen Recording pane
  */
 export async function requestScreenRecordingPermission(): Promise<void> {
-  // Open System Preferences to Screen Recording
-  await execAsync(
-    'open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"'
-  );
+  logger.info('Opening System Preferences for Screen Recording...');
+  openSystemPreferences();
 }
 
 /**
  * Request accessibility permission
- * Note: This will open System Preferences
+ * Opens System Preferences to the Accessibility pane
  */
 export async function requestAccessibilityPermission(): Promise<void> {
-  // Open System Preferences to Accessibility
+  logger.info('Opening System Preferences for Accessibility...');
+  // Prompt the system dialog
+  systemPreferences.isTrustedAccessibilityClient(true);
   await execAsync(
     'open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"'
   );
@@ -65,11 +67,11 @@ export async function requestAccessibilityPermission(): Promise<void> {
 /**
  * Check all required permissions
  */
-export async function checkAllPermissions(): Promise<PermissionStatus> {
-  const [screenRecording, accessibility] = await Promise.all([
-    checkScreenRecordingPermission(),
-    checkAccessibilityPermission(),
-  ]);
+export function checkAllPermissions(): PermissionStatus {
+  const screenRecording = checkScreenRecordingPermission();
+  const accessibility = checkAccessibilityPermission();
+
+  logger.info(`Permission status - Screen Recording: ${screenRecording}, Accessibility: ${accessibility}`);
 
   return {
     screenRecording,
@@ -81,7 +83,7 @@ export async function checkAllPermissions(): Promise<PermissionStatus> {
  * Request all missing permissions
  */
 export async function requestMissingPermissions(): Promise<void> {
-  const status = await checkAllPermissions();
+  const status = checkAllPermissions();
 
   if (!status.screenRecording) {
     await requestScreenRecordingPermission();
@@ -91,4 +93,3 @@ export async function requestMissingPermissions(): Promise<void> {
     await requestAccessibilityPermission();
   }
 }
-

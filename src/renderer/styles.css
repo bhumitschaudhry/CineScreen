@@ -118,6 +118,39 @@ h2 {
   color: #e0a800;
 }
 
+.permissions-hint {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.permission-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.permission-label {
+  font-weight: 500;
+  color: #d0d0d0;
+}
+
+.permission-desc {
+  font-size: 11px;
+  color: #666;
+}
+
+.permissions-note {
+  font-size: 11px;
+  color: #888;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: rgba(106, 171, 223, 0.1);
+  border-radius: 6px;
+  border-left: 3px solid #6aabdf;
+}
+
 .recording-controls {
   display: flex;
   flex-direction: column;

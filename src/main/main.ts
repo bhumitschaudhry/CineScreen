@@ -99,9 +99,9 @@ app.on('before-quit', async () => {
 
 // IPC Handlers
 
-ipcMain.handle('check-permissions', async () => {
+ipcMain.handle('check-permissions', () => {
   logger.debug('IPC: check-permissions called');
-  const permissions = await checkAllPermissions();
+  const permissions = checkAllPermissions();
   logger.debug('Permissions result:', permissions);
   return permissions;
 });
@@ -121,7 +121,7 @@ ipcMain.handle('start-recording', async (_, config: RecordingConfig) => {
 
   // Check permissions first
   logger.debug('Checking permissions...');
-  const permissions = await checkAllPermissions();
+  const permissions = checkAllPermissions();
   logger.debug('Permissions check result:', permissions);
   if (!permissions.screenRecording || !permissions.accessibility) {
     logger.error('Required permissions not granted');

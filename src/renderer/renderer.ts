@@ -78,6 +78,9 @@ function setupEventListeners() {
   // No settings event listeners needed - settings moved to studio
 }
 
+// Permission polling
+let permissionPollInterval: ReturnType<typeof setInterval> | null = null;
+
 // Check permissions
 async function checkPermissions() {
   try {
@@ -88,8 +91,32 @@ async function checkPermissions() {
     }
     const permissions = await api.checkPermissions();
     updatePermissionStatus(permissions);
+
+    // Start or stop polling based on permission status
+    const allGranted = permissions.screenRecording && permissions.accessibility;
+    if (allGranted) {
+      stopPermissionPolling();
+    } else {
+      startPermissionPolling();
+    }
   } catch (error) {
     console.error('Error checking permissions:', error);
+  }
+}
+
+// Start polling for permission changes
+function startPermissionPolling() {
+  if (permissionPollInterval) return; // Already polling
+  permissionPollInterval = setInterval(() => {
+    checkPermissions();
+  }, 1500); // Check every 1.5 seconds
+}
+
+// Stop polling
+function stopPermissionPolling() {
+  if (permissionPollInterval) {
+    clearInterval(permissionPollInterval);
+    permissionPollInterval = null;
   }
 }
 
@@ -100,19 +127,23 @@ function updatePermissionStatus(permissions: {
 }) {
   screenRecordingStatus.textContent = permissions.screenRecording
     ? 'Granted'
-    : 'Denied';
-  screenRecordingStatus.className = `status ${permissions.screenRecording ? 'granted' : 'denied'
-    }`;
+    : 'Not Granted';
+  screenRecordingStatus.className = `status ${permissions.screenRecording ? 'granted' : 'denied'}`;
 
   accessibilityStatus.textContent = permissions.accessibility
     ? 'Granted'
-    : 'Denied';
-  accessibilityStatus.className = `status ${permissions.accessibility ? 'granted' : 'denied'
-    }`;
+    : 'Not Granted';
+  accessibilityStatus.className = `status ${permissions.accessibility ? 'granted' : 'denied'}`;
 
   const allGranted = permissions.screenRecording && permissions.accessibility;
   requestPermissionsBtn.style.display = allGranted ? 'none' : 'block';
   recordBtn.disabled = !allGranted || isRecording;
+
+  // Show/hide the permissions note
+  const permissionsNote = document.getElementById('permissions-note');
+  if (permissionsNote) {
+    permissionsNote.style.display = allGranted ? 'none' : 'block';
+  }
 }
 
 // Request permissions
@@ -124,10 +155,8 @@ requestPermissionsBtn.addEventListener('click', async () => {
       return;
     }
     await api.requestPermissions();
-    // Wait a bit for user to grant permissions
-    setTimeout(() => {
-      checkPermissions();
-    }, 1000);
+    // Start polling to detect when user grants permissions
+    startPermissionPolling();
   } catch (error) {
     console.error('Error requesting permissions:', error);
   }

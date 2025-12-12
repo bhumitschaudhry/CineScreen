@@ -17,18 +17,28 @@
     </header>
 
     <div class="permissions-section" id="permissions-section">
-      <h2>Permissions</h2>
+      <h2>Permissions Required</h2>
+      <p class="permissions-hint">CineScreen needs these permissions to capture your screen and track cursor movements.</p>
       <div class="permission-item">
-        <span>Screen Recording:</span>
+        <div class="permission-info">
+          <span class="permission-label">Screen Recording</span>
+          <span class="permission-desc">Required to capture screen content</span>
+        </div>
         <span id="screen-recording-status" class="status">Checking...</span>
       </div>
       <div class="permission-item">
-        <span>Accessibility:</span>
+        <div class="permission-info">
+          <span class="permission-label">Accessibility</span>
+          <span class="permission-desc">Required to track cursor position</span>
+        </div>
         <span id="accessibility-status" class="status">Checking...</span>
       </div>
       <button id="request-permissions-btn" class="btn btn-secondary" style="display: none;">
-        Request Permissions
+        Open System Preferences
       </button>
+      <p class="permissions-note" id="permissions-note" style="display: none;">
+        After granting permissions, they will be detected automatically.
+      </p>
     </div>
 
     <div class="recording-section">
