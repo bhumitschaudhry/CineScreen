@@ -593,6 +593,320 @@ function setupEventListeners() {
     logger.info(`Added zoom section: ${startTime}ms - ${endTime}ms, scale: ${scale}x`);
   });
 
+  // Suggest zoom button - analyzes cursor movement and clicks to find important regions
+  const suggestZoomBtn = document.getElementById('suggest-zoom-btn');
+  suggestZoomBtn?.addEventListener('click', () => {
+    if (!metadata || !zoomEditor) {
+      alert('No video loaded');
+      return;
+    }
+
+    const keyframes = metadata.cursor.keyframes;
+    const clicks = metadata.clicks || [];
+    if (!keyframes || keyframes.length < 10) {
+      alert('Not enough cursor data to analyze');
+      return;
+    }
+
+    const videoDurationMs = getActualVideoDuration();
+    const scale = metadata.zoom.config.level || 2.0;
+    const existingSections = metadata.zoom.sections || [];
+    const videoWidth = metadata.video.width;
+    const videoHeight = metadata.video.height;
+
+    // Parameters for detection
+    const minDwellTime = 600; // Minimum dwell time (ms)
+    const maxMovementRadius = 600; // Maximum movement radius to consider "staying still"
+    const minGapBetweenSections = 2500; // Minimum gap between sections (ms)
+    const sectionPadding = 500; // Padding before/after detected region (ms)
+    const minSectionDuration = 2000; // Minimum section duration (ms)
+    const maxSectionDuration = 3500; // Maximum section duration (ms)
+
+    interface Candidate {
+      startTime: number;
+      endTime: number;
+      centerX: number;
+      centerY: number;
+      score: number; // Higher is better
+      hasClick: boolean;
+    }
+
+    const candidates: Candidate[] = [];
+
+    // Calculate viewport bounds at this zoom scale
+    // The visible area is videoWidth/scale by videoHeight/scale centered at the zoom point
+    const viewportWidth = videoWidth / scale;
+    const viewportHeight = videoHeight / scale;
+    // Small margin so cursor doesn't touch the very edge (3% padding from edge)
+    const viewportMarginX = viewportWidth * 0.03;
+    const viewportMarginY = viewportHeight * 0.03;
+    const effectiveViewportHalfWidth = (viewportWidth / 2) - viewportMarginX;
+    const effectiveViewportHalfHeight = (viewportHeight / 2) - viewportMarginY;
+
+    // Helper function to find optimal center and trim end time if cursor leaves viewport
+    const findOptimalCenter = (startTime: number, endTime: number): { centerX: number; centerY: number; endTime: number; valid: boolean } => {
+      // Get all keyframes within the time range
+      const sectionKeyframes = keyframes.filter(kf =>
+        kf.timestamp >= startTime && kf.timestamp <= endTime
+      );
+
+      if (sectionKeyframes.length === 0) {
+        return { centerX: 0, centerY: 0, endTime, valid: false };
+      }
+
+      // Use the first part of keyframes to establish center (before cursor might move away)
+      const initialKeyframes = sectionKeyframes.slice(0, Math.max(3, Math.floor(sectionKeyframes.length / 2)));
+
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const kf of initialKeyframes) {
+        minX = Math.min(minX, kf.x);
+        maxX = Math.max(maxX, kf.x);
+        minY = Math.min(minY, kf.y);
+        maxY = Math.max(maxY, kf.y);
+      }
+
+      // Calculate center from initial keyframes
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+
+      // Clamp center to ensure viewport stays within video bounds
+      const clampedCenterX = Math.max(viewportWidth / 2, Math.min(videoWidth - viewportWidth / 2, centerX));
+      const clampedCenterY = Math.max(viewportHeight / 2, Math.min(videoHeight - viewportHeight / 2, centerY));
+
+      // Find the last keyframe where cursor is still in viewport
+      let adjustedEndTime = endTime;
+      for (const kf of sectionKeyframes) {
+        const dx = Math.abs(kf.x - clampedCenterX);
+        const dy = Math.abs(kf.y - clampedCenterY);
+        if (dx > effectiveViewportHalfWidth || dy > effectiveViewportHalfHeight) {
+          // Cursor left viewport, end zoom just before this
+          adjustedEndTime = Math.max(startTime + 1000, kf.timestamp - 200);
+          break;
+        }
+      }
+
+      // Check if we have enough duration (at least 1 second)
+      if (adjustedEndTime - startTime < 1000) {
+        return { centerX: 0, centerY: 0, endTime, valid: false };
+      }
+
+      return { centerX: clampedCenterX, centerY: clampedCenterY, endTime: adjustedEndTime, valid: true };
+    };
+
+    // Method 1: Find click events with dwell time around them
+    for (const click of clicks) {
+      const clickTime = click.timestamp;
+
+      // Find keyframes around this click
+      const nearbyKeyframes = keyframes.filter(kf =>
+        Math.abs(kf.timestamp - clickTime) < 1500
+      );
+
+      if (nearbyKeyframes.length < 3) continue;
+
+      // Calculate average position and movement
+      let sumX = 0, sumY = 0;
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+      for (const kf of nearbyKeyframes) {
+        sumX += kf.x;
+        sumY += kf.y;
+        minX = Math.min(minX, kf.x);
+        maxX = Math.max(maxX, kf.x);
+        minY = Math.min(minY, kf.y);
+        maxY = Math.max(maxY, kf.y);
+      }
+
+      const avgX = sumX / nearbyKeyframes.length;
+      const avgY = sumY / nearbyKeyframes.length;
+      const movementRadius = Math.max(maxX - minX, maxY - minY) / 2;
+
+      // Score based on how still the cursor is
+      if (movementRadius < maxMovementRadius * 1.5) {
+        const startTime = Math.max(0, clickTime - sectionPadding);
+        const endTime = Math.min(videoDurationMs, clickTime + minSectionDuration);
+
+        // Find optimal center and trim end time if cursor leaves viewport
+        const optimal = findOptimalCenter(startTime, endTime);
+        if (!optimal.valid) continue;
+
+        candidates.push({
+          startTime,
+          endTime: optimal.endTime,
+          centerX: optimal.centerX,
+          centerY: optimal.centerY,
+          score: 100 - movementRadius + 50, // Bonus for having a click
+          hasClick: true
+        });
+      }
+    }
+
+    // Method 2: Find dwell regions (cursor stays still)
+    let i = 0;
+    while (i < keyframes.length) {
+      const startKeyframe = keyframes[i];
+      let endIndex = i;
+      let sumX = startKeyframe.x, sumY = startKeyframe.y;
+      let count = 1;
+
+      // Use a sliding window approach
+      const centerX = startKeyframe.x;
+      const centerY = startKeyframe.y;
+
+      // Expand window while cursor stays within radius
+      while (endIndex < keyframes.length - 1) {
+        const nextKeyframe = keyframes[endIndex + 1];
+        const dx = nextKeyframe.x - centerX;
+        const dy = nextKeyframe.y - centerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance > maxMovementRadius) break;
+
+        sumX += nextKeyframe.x;
+        sumY += nextKeyframe.y;
+        count++;
+        endIndex++;
+      }
+
+      const dwellTime = keyframes[endIndex].timestamp - startKeyframe.timestamp;
+
+      if (dwellTime >= minDwellTime) {
+        const avgX = sumX / count;
+        const avgY = sumY / count;
+
+        // Check if there's a click in this region
+        const hasClick = clicks.some(c =>
+          c.timestamp >= startKeyframe.timestamp &&
+          c.timestamp <= keyframes[endIndex].timestamp
+        );
+
+        // Calculate score based on dwell time and position
+        // Prefer regions not at screen edges
+        const edgeMargin = 0.15;
+        const isNearEdge =
+          avgX < videoWidth * edgeMargin ||
+          avgX > videoWidth * (1 - edgeMargin) ||
+          avgY < videoHeight * edgeMargin ||
+          avgY > videoHeight * (1 - edgeMargin);
+
+        const edgePenalty = isNearEdge ? 30 : 0;
+        const dwellBonus = Math.min(dwellTime / 50, 40); // More dwell = better, capped
+        const clickBonus = hasClick ? 40 : 0;
+
+        const startTime = Math.max(0, startKeyframe.timestamp - sectionPadding);
+        const endTime = Math.min(
+          videoDurationMs,
+          keyframes[endIndex].timestamp + sectionPadding,
+          startTime + maxSectionDuration
+        );
+
+        if (endTime - startTime >= minSectionDuration) {
+          // Find optimal center and trim end time if cursor leaves viewport
+          const optimal = findOptimalCenter(startTime, endTime);
+          if (optimal.valid) {
+            candidates.push({
+              startTime,
+              endTime: optimal.endTime,
+              centerX: optimal.centerX,
+              centerY: optimal.centerY,
+              score: dwellBonus + clickBonus - edgePenalty,
+              hasClick
+            });
+          }
+        }
+
+        // Skip past this region
+        i = endIndex + 1;
+      } else {
+        i++;
+      }
+    }
+
+    if (candidates.length === 0) {
+      showToast('No suitable zoom regions found', 'error');
+      return;
+    }
+
+    // Divide timeline into segments and pick best from each for better distribution
+    const numSegments = Math.min(5, Math.ceil(videoDurationMs / 15000)); // ~15 sec segments
+    const segmentDuration = videoDurationMs / numSegments;
+
+    // Group candidates by segment
+    const segmentCandidates: Candidate[][] = Array.from({ length: numSegments }, () => []);
+    for (const candidate of candidates) {
+      const segmentIndex = Math.min(
+        numSegments - 1,
+        Math.floor(candidate.startTime / segmentDuration)
+      );
+      segmentCandidates[segmentIndex].push(candidate);
+    }
+
+    // Sort each segment by score
+    for (const segment of segmentCandidates) {
+      segment.sort((a, b) => b.score - a.score);
+    }
+
+    // Select candidates round-robin from segments, respecting constraints
+    const selectedSections: Candidate[] = [];
+    const usedSegments = new Set<number>();
+
+    // Keep trying until we can't add more
+    let changed = true;
+    while (changed) {
+      changed = false;
+
+      for (let segIdx = 0; segIdx < numSegments; segIdx++) {
+        const segment = segmentCandidates[segIdx];
+        if (segment.length === 0) continue;
+
+        // Find best candidate from this segment that doesn't overlap
+        for (let i = 0; i < segment.length; i++) {
+          const candidate = segment[i];
+
+          // Check overlap with existing sections
+          const overlapsExisting = existingSections.some(s =>
+            candidate.startTime < s.endTime && candidate.endTime > s.startTime
+          );
+
+          // Check overlap with already selected sections (with gap)
+          const overlapsSelected = selectedSections.some(s =>
+            candidate.startTime < s.endTime + minGapBetweenSections &&
+            candidate.endTime > s.startTime - minGapBetweenSections
+          );
+
+          if (!overlapsExisting && !overlapsSelected) {
+            selectedSections.push(candidate);
+            segment.splice(i, 1); // Remove from candidates
+            changed = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (selectedSections.length === 0) {
+      showToast('No suitable zoom regions found', 'error');
+      return;
+    }
+
+    // Sort by time for adding
+    selectedSections.sort((a, b) => a.startTime - b.startTime);
+
+    // Add the sections
+    for (const section of selectedSections) {
+      zoomEditor.addZoomSection(
+        section.startTime,
+        section.endTime,
+        scale,
+        section.centerX,
+        section.centerY
+      );
+    }
+
+    showToast(`Added ${selectedSections.length} zoom section${selectedSections.length > 1 ? 's' : ''}`);
+    logger.info(`Suggested ${selectedSections.length} zoom sections`);
+  });
+
   // Toast notification helper
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     const toast = document.getElementById('toast');
