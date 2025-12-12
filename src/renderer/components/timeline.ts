@@ -39,7 +39,7 @@ export class Timeline {
     this.zoomRow = zoomRow;
 
     // Initialize playhead at the start position (time = 0)
-    const labelWidth = 100;
+    const labelWidth = 80;
     this.playhead.style.left = `${labelWidth}px`;
 
     this.setupEventListeners();
@@ -73,7 +73,7 @@ export class Timeline {
     // Calculate timeline width: duration in seconds * pixels per second
     const durationSeconds = this.duration / 1000;
     const timelineWidth = durationSeconds * this.pixelsPerSecond;
-    const labelWidth = 100; // Width of the label column
+    const labelWidth = 80; // Width of the label column
 
     // Set width on ruler (ruler spans full width including label area)
     this.ruler.style.width = `${timelineWidth + labelWidth}px`;
@@ -103,7 +103,7 @@ export class Timeline {
 
   updatePlayhead(time: number) {
     if (!this.duration) return;
-    const labelWidth = 100; // Account for label width
+    const labelWidth = 80; // Account for label width
     const position = (time * this.pixelsPerSecond) + labelWidth;
     this.playhead.style.left = `${position}px`;
   }
@@ -173,7 +173,7 @@ export class Timeline {
     const rect = this.container.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const scrollLeft = this.container.scrollLeft;
-    const labelWidth = 100; // Account for label width
+    const labelWidth = 80; // Account for label width
     let x = mouseX + scrollLeft - labelWidth; // Subtract label width to get position in content area
 
     // Clamp x to the actual timeline width to prevent seeking beyond the video duration
@@ -243,7 +243,7 @@ export class Timeline {
     const durationSeconds = this.duration / 1000;
     const mins = Math.floor(durationSeconds / 60);
     const secs = Math.floor(durationSeconds % 60);
-    section.textContent = `Video (${mins}:${secs.toString().padStart(2, '0')})`;
+    section.textContent = `Video (${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')})`;
 
     this.videoRow.appendChild(section);
   }
@@ -530,7 +530,7 @@ export class Timeline {
     const timelineWidth = this.getTimelineWidth();
     const interval = this.calculateRulerInterval();
     const marks: number[] = [];
-    const labelWidth = 100; // Account for label width
+    const labelWidth = 80; // Account for label width
 
     for (let time = 0; time <= this.duration; time += interval) {
       marks.push(time);
