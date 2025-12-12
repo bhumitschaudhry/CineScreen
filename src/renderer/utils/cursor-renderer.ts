@@ -4,12 +4,26 @@ import {
   CURSOR_CLICK_ANIMATION_DURATION_MS,
   CURSOR_CLICK_ANIMATION_SCALE,
 } from '../../utils/constants';
+import { SmoothPosition2D } from '../../processing/smooth-motion';
 
 /**
- * Reset smoothing state (no-op, kept for API compatibility)
+ * Cursor smooth time - higher values create more prominent glide
+ * 0.2 = responsive glide effect that stays accurate during clicks
+ */
+const CURSOR_SMOOTH_TIME = 0.2;
+
+/**
+ * Cursor position smoother for glide effect
+ */
+let cursorSmoother: SmoothPosition2D | null = null;
+let lastFrameTime: number = 0;
+
+/**
+ * Reset smoothing state when seeking or loading new video
  */
 export function resetCursorSmoothing(): void {
-  // No smoothing state to reset - cursor position comes directly from keyframes
+  cursorSmoother = null;
+  lastFrameTime = 0;
 }
 
 // Import cursor SVG assets (using new asset file names)
@@ -352,12 +366,28 @@ export function renderCursor(
   const shape = cursorPos.shape || config.shape || 'arrow';
 
   // Check if currently clicking (within animation duration)
-  const clickAnimationScale = calculateClickAnimationScale(timestamp, metadata.clicks || []);
+  const clicks = metadata.clicks || [];
+  const clickAnimationScale = calculateClickAnimationScale(timestamp, clicks);
 
-  // Use cursor position directly from keyframes (no additional smoothing)
-  // Keyframes already contain high-frequency telemetry data with linear interpolation
-  const x = cursorPos.x * scale + offsetX;
-  const y = cursorPos.y * scale + offsetY;
+  // Apply smooth glide effect to cursor position
+  // Initialize smoother if needed
+  if (!cursorSmoother) {
+    cursorSmoother = new SmoothPosition2D(cursorPos.x, cursorPos.y, CURSOR_SMOOTH_TIME);
+    lastFrameTime = performance.now();
+  }
+
+  // Calculate delta time for smooth updates
+  const currentFrameTime = performance.now();
+  const deltaTime = Math.min((currentFrameTime - lastFrameTime) / 1000, 0.1); // Cap at 100ms
+  lastFrameTime = currentFrameTime;
+
+  // Update smoother and get smoothed position
+  cursorSmoother.setTarget(cursorPos.x, cursorPos.y);
+  const smoothedPos = cursorSmoother.update(deltaTime);
+
+  // Use smoothed position for glide effect
+  const x = smoothedPos.x * scale + offsetX;
+  const y = smoothedPos.y * scale + offsetY;
 
   // Scale cursor size (base scale * click animation scale)
   const cursorSize = size * scale * clickAnimationScale;
