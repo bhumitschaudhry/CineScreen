@@ -1,6 +1,6 @@
 {
   "name": "cinescreen",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Screen recording software for Mac with cursor overlay",
   "main": "dist/main/main/main.js",
   "scripts": {
