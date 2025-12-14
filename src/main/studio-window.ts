@@ -28,8 +28,8 @@ export function createStudioWindow(videoPath: string, metadataPath: string): voi
   logger.debug('Preload path:', preloadPath);
 
   const iconPath = isDev
-    ? join(__dirname, '../../../src/assets/logo.png')
-    : join(process.resourcesPath, 'assets/logo.png');
+    ? join(__dirname, '../../../src/assets/icon.png')
+    : join(process.resourcesPath, 'assets/icon.png');
 
   studioWindow = new BrowserWindow({
     width: 1400,

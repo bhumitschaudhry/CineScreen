@@ -35,8 +35,8 @@ function createWindow(): void {
     : join(__dirname, '../renderer/preload.js');
 
   const iconPath = isDev
-    ? join(__dirname, '../../../src/assets/logo.png')
-    : join(process.resourcesPath, 'assets/logo.png');
+    ? join(__dirname, '../../../src/assets/icon.png')
+    : join(process.resourcesPath, 'assets/icon.png');
 
   mainWindow = new BrowserWindow({
     width: 500,

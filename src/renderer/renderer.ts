@@ -225,7 +225,7 @@ stopBtn.addEventListener('click', async () => {
   };
 
   const zoomConfig: ZoomConfig | undefined = {
-    enabled: false,
+    enabled: true,
     level: 2.0,
     transitionSpeed: 300,
     padding: 0,

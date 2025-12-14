@@ -144,7 +144,7 @@ export class KeyframePanel {
     const scaleLabel = document.createElement('label');
     scaleLabel.textContent = 'Scale:';
     scaleLabel.style.color = '#999';
-    scaleLabel.style.minWidth = '50px';
+    scaleLabel.style.minWidth = '60px';
 
     const scaleInput = document.createElement('input');
     scaleInput.type = 'range';
@@ -185,7 +185,7 @@ export class KeyframePanel {
     const centerXLabel = document.createElement('label');
     centerXLabel.textContent = 'Center X:';
     centerXLabel.style.color = '#999';
-    centerXLabel.style.minWidth = '50px';
+    centerXLabel.style.minWidth = '60px';
 
     const centerXInput = document.createElement('input');
     centerXInput.type = 'number';
@@ -218,7 +218,7 @@ export class KeyframePanel {
     const centerYLabel = document.createElement('label');
     centerYLabel.textContent = 'Center Y:';
     centerYLabel.style.color = '#999';
-    centerYLabel.style.minWidth = '50px';
+    centerYLabel.style.minWidth = '60px';
 
     const centerYInput = document.createElement('input');
     centerYInput.type = 'number';

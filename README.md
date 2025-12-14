@@ -1,5 +1,11 @@
 # CineScreen
 
+![Version](https://img.shields.io/github/v/release/jasonzh0/CineScreen)
+
+<div align="center">
+  <img src="src/assets/icon.png" alt="CineScreen Icon" width="128">
+</div>
+
 A professional macOS screen recording application built with Electron that records your screen without the native cursor, tracks mouse movements separately, and provides a powerful post-processing studio for creating polished, cinematic screen recordings.
 
 ### Result
@@ -71,40 +77,20 @@ Support for Intel Macs (x64) and other platforms may be added in the future.
 - **Vite** - Fast build tool for renderer process
 - **Native Swift** - Mouse button state tracking
 
-## Architecture
-
-The application follows a modular architecture:
-
-- **Main Process** (`src/main/`) - Handles screen capture, mouse tracking, and window management
-- **Renderer Process** (`src/renderer/`) - UI for capture window and studio editor
-- **Processing** (`src/processing/`) - Video processing, cursor rendering, zoom effects, and motion blur
-  - `cursor-utils.ts` - Shared cursor utilities (interpolation, easing, hotspots, click animations)
-  - `smooth-motion.ts` - Spring physics and SmoothDamp algorithms for glide effects
-  - `motion-blur.ts` - Directional motion blur using convolution kernels
-  - `sharp-renderer.ts` - Frame-by-frame video rendering with Sharp
-  - `zoom-tracker.ts` - Zoom region calculation and smoothing
-- **Native Module** (`native/`) - Swift-based mouse button state detection
-
 ## Installation
 
-### Prerequisites
-- macOS (required for screen recording APIs)
-- Node.js 18+ and npm
-- Xcode Command Line Tools (for native module compilation)
+### Download from GitHub Releases
 
-### Setup
+1. Go to the [Releases page](https://github.com/jasonzh0/CineScreen/releases) on GitHub
+2. Download the latest `.dmg` file from the assets section
+3. Open the downloaded DMG file
+4. Drag CineScreen to your Applications folder
+5. Launch CineScreen from Applications
 
-```bash
-# Clone the repository
-git clone <repository-url>
-cd CineScreen
-
-# Install dependencies
-npm install
-
-# Build native modules
-npm run build:native
-```
+**Note:** On first launch, macOS may warn you that the app is from an unidentified developer. To allow it:
+- Right-click (or Control-click) the app and select "Open"
+- Click "Open" in the security dialog
+- Or go to System Settings > Privacy & Security and click "Open Anyway" next to the warning message
 
 ## Development
 
