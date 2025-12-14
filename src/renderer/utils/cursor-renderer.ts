@@ -6,12 +6,14 @@ import {
   getCursorHotspot,
   interpolateCursorPosition,
   calculateClickAnimationScale,
+  CursorTypeStabilizer,
 } from '../../processing/cursor-utils';
 
 /**
  * Cursor position smoother for glide effect
  */
 let cursorSmoother: SmoothPosition2D | null = null;
+let cursorTypeStabilizer: CursorTypeStabilizer | null = null;
 let lastFrameTime: number = 0;
 
 /**
@@ -19,6 +21,7 @@ let lastFrameTime: number = 0;
  */
 export function resetCursorSmoothing(): void {
   cursorSmoother = null;
+  cursorTypeStabilizer = null;
   lastFrameTime = 0;
 }
 
@@ -190,7 +193,16 @@ export function renderCursor(
   // Get cursor config
   const config = metadata.cursor.config;
   const size = cursorPos.size || config.size || 60;
-  const shape = cursorPos.shape || config.shape || 'arrow';
+  const rawShape = cursorPos.shape || config.shape || 'arrow';
+
+  // Initialize cursor type stabilizer if needed
+  if (!cursorTypeStabilizer) {
+    cursorTypeStabilizer = new CursorTypeStabilizer(rawShape);
+    cursorTypeStabilizer.setKeyframes(metadata.cursor.keyframes);
+  }
+
+  // Stabilize cursor shape using look-ahead to prevent flickering
+  const shape = cursorTypeStabilizer.update(rawShape, timestamp);
 
   // Check if currently clicking (within animation duration)
   const clicks = metadata.clicks || [];

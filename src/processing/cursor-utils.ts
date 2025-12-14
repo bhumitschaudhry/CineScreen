@@ -13,9 +13,123 @@ import {
 /**
  * Cursor smooth time for glide effect
  * Higher values create more prominent glide
- * 0.2 = responsive glide effect that stays accurate during clicks
+ * 0.25 = smooth glide effect with good responsiveness
  */
-export const CURSOR_SMOOTH_TIME = 0.2;
+export const CURSOR_SMOOTH_TIME = 0.25;
+
+/**
+ * Look-ahead window (ms) to check if cursor type change is sustained
+ * If cursor type flickers back within this window, don't change
+ */
+export const CURSOR_TYPE_LOOKAHEAD_MS = 100;
+
+/**
+ * Get stabilized cursor type by looking ahead in keyframes
+ * Returns the current type if the change is just a brief flicker
+ */
+export function getStabilizedCursorType(
+  keyframes: CursorKeyframe[],
+  currentIndex: number,
+  timestamp: number,
+  currentType: string,
+  lookaheadMs: number = CURSOR_TYPE_LOOKAHEAD_MS
+): string {
+  if (keyframes.length === 0) return currentType;
+
+  const keyframe = keyframes[currentIndex];
+  if (!keyframe) return currentType;
+
+  const newType = keyframe.shape || 'arrow';
+
+  // If same as current, no change needed
+  if (newType === currentType) {
+    return currentType;
+  }
+
+  // Look ahead to see if this type change is sustained
+  const lookaheadEnd = timestamp + lookaheadMs;
+  let sustainedType = newType;
+
+  // Check keyframes within the lookahead window
+  for (let i = currentIndex + 1; i < keyframes.length; i++) {
+    const futureKeyframe = keyframes[i];
+    if (futureKeyframe.timestamp > lookaheadEnd) {
+      break;
+    }
+
+    const futureType = futureKeyframe.shape || 'arrow';
+
+    // If it flickers back to current type, don't change
+    if (futureType === currentType) {
+      return currentType;
+    }
+
+    sustainedType = futureType;
+  }
+
+  // Type change is sustained, apply it
+  return newType;
+}
+
+/**
+ * Cursor type stabilizer that uses look-ahead for smoother transitions
+ */
+export class CursorTypeStabilizer {
+  private currentType: string = 'arrow';
+  private keyframes: CursorKeyframe[] = [];
+  private readonly lookaheadMs: number;
+
+  constructor(initialType: string = 'arrow', lookaheadMs: number = CURSOR_TYPE_LOOKAHEAD_MS) {
+    this.currentType = initialType;
+    this.lookaheadMs = lookaheadMs;
+  }
+
+  /**
+   * Set keyframes for look-ahead functionality
+   */
+  setKeyframes(keyframes: CursorKeyframe[]): void {
+    this.keyframes = keyframes;
+  }
+
+  /**
+   * Update with new cursor type and timestamp
+   * Uses look-ahead to determine if change should be applied
+   */
+  update(newType: string | undefined, timestamp: number): string {
+    const type = newType || 'arrow';
+
+    // If same as current, no change needed
+    if (type === this.currentType) {
+      return this.currentType;
+    }
+
+    // Find current keyframe index
+    let currentIndex = 0;
+    for (let i = 0; i < this.keyframes.length; i++) {
+      if (this.keyframes[i].timestamp <= timestamp) {
+        currentIndex = i;
+      } else {
+        break;
+      }
+    }
+
+    // Use look-ahead to check if change is sustained
+    const stabilizedType = getStabilizedCursorType(
+      this.keyframes,
+      currentIndex,
+      timestamp,
+      this.currentType,
+      this.lookaheadMs
+    );
+
+    this.currentType = stabilizedType;
+    return this.currentType;
+  }
+
+  getCurrentType(): string {
+    return this.currentType;
+  }
+}
 
 /**
  * Cursor hotspot offsets (x, y) within the 32x32 viewBox

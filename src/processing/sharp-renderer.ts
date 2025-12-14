@@ -12,6 +12,7 @@ import {
   getCursorHotspot,
   applyEasing,
   calculateClickAnimationScale,
+  CursorTypeStabilizer,
 } from './cursor-utils';
 import {
   BLACK_BACKGROUND,
@@ -374,6 +375,11 @@ export function createFrameDataFromKeyframes(
   // Initialize cursor smoother for glide effect (matching preview)
   const cursorSmoother = new SmoothPosition2D(initialX, initialY, CURSOR_SMOOTH_TIME);
 
+  // Initialize cursor type stabilizer with look-ahead to prevent flickering
+  const initialCursorType = cursorKeyframes.length > 0 ? (cursorKeyframes[0].shape || 'arrow') : 'arrow';
+  const cursorTypeStabilizer = new CursorTypeStabilizer(initialCursorType);
+  cursorTypeStabilizer.setKeyframes(cursorKeyframes);
+
   // Track cursor movement for "hide when static"
   const staticThreshold = CURSOR_STATIC_THRESHOLD;
   let lastMovementTime = 0;
@@ -428,8 +434,9 @@ export function createFrameDataFromKeyframes(
     // Calculate click animation scale
     const clickAnimationScale = clicks ? calculateClickAnimationScale(timestamp, clicks) : 1.0;
 
-    // Get cursor shape
-    const cursorShape = cursorPos.shape || cursorConfig?.shape || 'arrow';
+    // Get cursor shape with stabilization to prevent flickering
+    const rawCursorShape = cursorPos.shape || cursorConfig?.shape || 'arrow';
+    const cursorShape = cursorTypeStabilizer.update(rawCursorShape, timestamp);
 
     // Get zoom data
     const zoomData = interpolateZoom(timestamp);
