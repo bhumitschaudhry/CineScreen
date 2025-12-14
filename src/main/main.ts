@@ -42,6 +42,8 @@ function createWindow(): void {
     width: 500,
     height: 800,
     icon: iconPath,
+    show: false,
+    backgroundColor: '#1a1a1a',
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
@@ -49,6 +51,10 @@ function createWindow(): void {
     },
     title: 'CineScreen',
     resizable: true,
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
   });
 
   if (isDev) {

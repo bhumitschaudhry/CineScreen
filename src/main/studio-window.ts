@@ -35,6 +35,8 @@ export function createStudioWindow(videoPath: string, metadataPath: string): voi
     width: 1400,
     height: 900,
     icon: iconPath,
+    show: false,
+    backgroundColor: '#1a1a1a',
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
@@ -45,6 +47,10 @@ export function createStudioWindow(videoPath: string, metadataPath: string): voi
     resizable: true,
     minWidth: 1000,
     minHeight: 600,
+  });
+
+  studioWindow.once('ready-to-show', () => {
+    studioWindow?.show();
   });
 
   // Load studio HTML with video and metadata paths as URL parameters
