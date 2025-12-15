@@ -1,59 +1,152 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { spawn } from 'child_process';
+import { join, dirname } from 'path';
+import { existsSync } from 'fs';
+import { app } from 'electron';
 import { createLogger } from '../utils/logger';
 
-const execAsync = promisify(exec);
 const logger = createLogger('CursorVisibility');
+
+let binaryPath: string | null = null;
+
+/**
+ * Find the path to the cursor-control binary
+ * Works in both development and packaged environments
+ */
+function findBinaryPath(): string {
+  if (binaryPath) {
+    return binaryPath;
+  }
+
+  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+  if (isDev) {
+    const projectRoot = join(__dirname, '../../..');
+    const devPath = join(projectRoot, 'native', 'cursor-control');
+
+    if (existsSync(devPath)) {
+      binaryPath = devPath;
+      logger.debug(`[BINARY] Found cursor-control binary in dev: ${binaryPath}`);
+      return binaryPath;
+    }
+
+    logger.warn(`[BINARY] cursor-control binary not found in dev at: ${devPath}`);
+  } else {
+    try {
+      const exePath = process.execPath;
+      const appBundlePath = exePath.replace(/\/Contents\/MacOS\/.*$/, '');
+      const resourcesPath = join(appBundlePath, 'Contents', 'Resources', 'cursor-control');
+
+      if (existsSync(resourcesPath)) {
+        binaryPath = resourcesPath;
+        logger.debug(`[BINARY] Found cursor-control binary in packaged app Resources: ${binaryPath}`);
+        return binaryPath;
+      }
+
+      const exeDir = dirname(exePath);
+      const appBundleFromExe = exeDir.replace(/\/MacOS$/, '');
+      const resourcesPath2 = join(appBundleFromExe, 'Resources', 'cursor-control');
+
+      if (existsSync(resourcesPath2)) {
+        binaryPath = resourcesPath2;
+        logger.debug(`[BINARY] Found cursor-control binary in packaged app (method 2): ${binaryPath}`);
+        return binaryPath;
+      }
+
+      logger.warn(`[BINARY] cursor-control binary not found in packaged app. Tried: ${resourcesPath}, ${resourcesPath2}`);
+    } catch (error) {
+      logger.error(`[BINARY] Error finding cursor-control binary path:`, error);
+    }
+  }
+
+  const fallbackPaths = [
+    '/usr/local/bin/cursor-control',
+    join(process.cwd(), 'native', 'cursor-control'),
+  ];
+
+  for (const path of fallbackPaths) {
+    if (existsSync(path)) {
+      binaryPath = path;
+      return binaryPath;
+    }
+  }
+
+  throw new Error('cursor-control binary not found. Run: cd native && ./build.sh');
+}
+
+/**
+ * Execute cursor control command using native binary
+ */
+async function executeCursorCommand(command: 'hide' | 'show'): Promise<void> {
+  const binPath = findBinaryPath();
+
+  return new Promise((resolve, reject) => {
+    const binary = spawn(binPath, [command], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stderr = '';
+    let resolved = false;
+
+    binary.stderr?.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    binary.on('close', (code) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timeoutId);
+
+      if (code === 0) {
+        resolve();
+      } else {
+        logger.warn(`cursor-control ${command} exited with code ${code}: ${stderr}`);
+        resolve(); // Don't reject - cursor control is best-effort
+      }
+    });
+
+    binary.on('error', (error) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timeoutId);
+      logger.warn(`cursor-control ${command} error:`, error);
+      resolve(); // Don't reject - cursor control is best-effort
+    });
+
+    const timeoutId = setTimeout(() => {
+      if (resolved) return;
+      resolved = true;
+      binary.kill();
+      logger.warn(`cursor-control ${command} timeout`);
+      resolve(); // Don't reject - cursor control is best-effort
+    }, 500); // 500ms timeout for cursor operations
+  });
+}
 
 /**
  * Hide the system cursor on macOS
- * Uses AppleScript to call Objective-C bridge
+ * Calls hide multiple times to ensure cursor is hidden (CGDisplayHideCursor uses reference counting)
+ * Also adds a small delay to ensure the OS has processed the hide request
  */
 export async function hideSystemCursor(): Promise<void> {
-  try {
-    // Use AppleScript to hide cursor via Objective-C bridge
-    // CGDisplayHideCursor is the macOS API to hide the cursor
-    const script = `
-      use framework "CoreGraphics"
-      current application's CGDisplayHideCursor(current application's CGMainDisplayID())
-    `;
-    
-    await execAsync(`osascript -l AppleScript -e '${script}'`);
-    logger.info('System cursor hidden');
-  } catch (error) {
-    logger.warn('Failed to hide system cursor (may not be supported):', error);
-    // Fallback: Try alternative method
-    try {
-      await execAsync(`osascript -e 'tell application "System Events" to set visible of process "Cursor" to false'`);
-    } catch {
-      // Ignore fallback errors
-    }
+  // Call hide multiple times to ensure it's truly hidden
+  // This overcomes any race conditions with the reference count
+  for (let i = 0; i < 3; i++) {
+    await executeCursorCommand('hide');
   }
+
+  // Add a small delay to ensure the OS has processed the hide request
+  // This helps prevent the cursor from briefly appearing when recording starts
+  await new Promise(resolve => setTimeout(resolve, 50));
+
+  logger.info('System cursor hidden (3x with delay)');
 }
 
 /**
  * Show the system cursor on macOS
  */
 export async function showSystemCursor(): Promise<void> {
-  try {
-    // Use AppleScript to show cursor via Objective-C bridge
-    const script = `
-      use framework "CoreGraphics"
-      current application's CGDisplayShowCursor(current application's CGMainDisplayID())
-    `;
-    
-    await execAsync(`osascript -l AppleScript -e '${script}'`);
-    logger.info('System cursor shown');
-  } catch (error) {
-    logger.warn('Failed to show system cursor:', error);
-    // Fallback: Try to restore cursor
-    try {
-      // Move mouse slightly to force cursor redraw
-      await execAsync(`osascript -e 'tell application "System Events" to key code 60'`); // Shift key
-    } catch {
-      // Ignore fallback errors
-    }
-  }
+  await executeCursorCommand('show');
+  logger.info('System cursor shown');
 }
 
 /**

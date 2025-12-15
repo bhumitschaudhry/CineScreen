@@ -84,6 +84,13 @@
         "filter": [
           "mouse-telemetry"
         ]
+      },
+      {
+        "from": "native/cursor-control",
+        "to": ".",
+        "filter": [
+          "cursor-control"
+        ]
       }
     ],
     "asarUnpack": [

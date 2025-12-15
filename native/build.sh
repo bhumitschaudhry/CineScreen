@@ -18,3 +18,17 @@ else
     echo "Failed to build mouse-telemetry binary"
     exit 1
 fi
+
+# Build cursor-control binary (hide/show system cursor)
+CURSOR_SWIFT_FILE="$SCRIPT_DIR/cursor-control.swift"
+CURSOR_OUTPUT_FILE="$SCRIPT_DIR/cursor-control"
+
+swiftc -o "$CURSOR_OUTPUT_FILE" "$CURSOR_SWIFT_FILE" -framework CoreGraphics
+
+if [ $? -eq 0 ]; then
+    echo "Successfully built cursor-control binary"
+    chmod +x "$CURSOR_OUTPUT_FILE"
+else
+    echo "Failed to build cursor-control binary"
+    exit 1
+fi

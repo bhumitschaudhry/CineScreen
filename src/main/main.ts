@@ -169,15 +169,20 @@ ipcMain.handle('start-recording', async (_, config: RecordingConfig) => {
       mainWindow.setContentProtection(true);
     }
 
-    // Start mouse tracking first
+    // Hide system cursor FIRST before anything else
+    // This ensures the cursor is fully hidden before FFmpeg starts capturing
+    logger.info('Hiding system cursor...');
+    await hideSystemCursor();
+
+    // Add extra buffer time after cursor hide to ensure it's fully processed
+    // This helps prevent the cursor from briefly appearing at the start of recording
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Start mouse tracking
     logger.info('Starting mouse tracking...');
     const mouseTrackingStartTime = Date.now();
     await mouseTracker.startTracking();
     logger.info('Mouse tracking started');
-
-    // Hide system cursor during recording (we'll overlay our own smooth cursor)
-    logger.info('Hiding system cursor...');
-    await hideSystemCursor();
 
     // Start screen recording
     logger.info('Starting screen recording...');

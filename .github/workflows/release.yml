@@ -73,12 +73,19 @@ jobs:
 
           IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
 
-          if [ -n "$IDENTITY" ] && [ -f "native/mouse-telemetry" ]; then
-            echo "Signing native/mouse-telemetry with: $IDENTITY"
-            codesign --force --options runtime --timestamp --sign "$IDENTITY" native/mouse-telemetry
-            codesign -vv native/mouse-telemetry
+          if [ -n "$IDENTITY" ]; then
+            if [ -f "native/mouse-telemetry" ]; then
+              echo "Signing native/mouse-telemetry with: $IDENTITY"
+              codesign --force --options runtime --timestamp --sign "$IDENTITY" native/mouse-telemetry
+              codesign -vv native/mouse-telemetry
+            fi
+            if [ -f "native/cursor-control" ]; then
+              echo "Signing native/cursor-control with: $IDENTITY"
+              codesign --force --options runtime --timestamp --sign "$IDENTITY" native/cursor-control
+              codesign -vv native/cursor-control
+            fi
           else
-            echo "Skipping native binary signing (no identity or binary not found)"
+            echo "Skipping native binary signing (no identity found)"
           fi
 
       - name: Package and notarize application
