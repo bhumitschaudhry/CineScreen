@@ -6,6 +6,11 @@
 import type { CursorKeyframe, EasingType } from '../types/metadata';
 import { easeInOut, easeIn, easeOut } from './effects';
 import {
+  interpolate2DArcLength,
+  interpolateCatmullRomArcLength,
+  type Point2D,
+} from './arc-length';
+import {
   CURSOR_CLICK_ANIMATION_DURATION_MS,
   CURSOR_CLICK_ANIMATION_SCALE,
 } from '../utils/constants';
@@ -200,7 +205,14 @@ export function applyEasing(t: number, easing: EasingType): number {
 }
 
 /**
- * Interpolate cursor position between keyframes
+ * Interpolate cursor position between keyframes using arc-length parameterization
+ *
+ * Arc-length parameterization ensures uniform perceived speed along the path
+ * regardless of the X/Y distance ratio. This prevents the "diagonal then straight"
+ * effect that occurs with naive independent X/Y interpolation.
+ *
+ * When we have neighboring keyframes (for Catmull-Rom), we use spline interpolation
+ * for even smoother curved motion through the keyframes.
  */
 export function interpolateCursorPosition(
   keyframes: CursorKeyframe[],
@@ -212,24 +224,18 @@ export function interpolateCursorPosition(
     return { x: kf.x, y: kf.y, size: kf.size, shape: kf.shape };
   }
 
-  // Find the two keyframes that bracket this timestamp
-  let prevKeyframe: CursorKeyframe | null = null;
-  let nextKeyframe: CursorKeyframe | null = null;
-
+  // Find the index of the keyframe just before or at this timestamp
+  let prevIndex = 0;
   for (let i = 0; i < keyframes.length; i++) {
     if (keyframes[i].timestamp <= timestamp) {
-      prevKeyframe = keyframes[i];
-      nextKeyframe = keyframes[i + 1] || keyframes[i];
+      prevIndex = i;
     } else {
-      if (!prevKeyframe) {
-        prevKeyframe = keyframes[0];
-        nextKeyframe = keyframes[0];
-      } else {
-        nextKeyframe = keyframes[i];
-      }
       break;
     }
   }
+
+  const prevKeyframe = keyframes[prevIndex];
+  const nextKeyframe = keyframes[prevIndex + 1] || keyframes[prevIndex];
 
   if (!prevKeyframe || !nextKeyframe) {
     return null;
@@ -245,23 +251,45 @@ export function interpolateCursorPosition(
     };
   }
 
-  // Interpolate between keyframes
+  // Calculate raw progress (0 to 1)
   const timeDiff = nextKeyframe.timestamp - prevKeyframe.timestamp;
   const t = timeDiff > 0 ? (timestamp - prevKeyframe.timestamp) / timeDiff : 0;
+
   // Use easing from start keyframe, or default to linear for smooth motion
   const easingType: EasingType = prevKeyframe.easing || 'linear';
-  const easedT = applyEasing(t, easingType);
 
-  const x = prevKeyframe.x + (nextKeyframe.x - prevKeyframe.x) * easedT;
-  const y = prevKeyframe.y + (nextKeyframe.y - prevKeyframe.y) * easedT;
+  // Define points for interpolation
+  const startPoint: Point2D = { x: prevKeyframe.x, y: prevKeyframe.y };
+  const endPoint: Point2D = { x: nextKeyframe.x, y: nextKeyframe.y };
+
+  let interpolatedPos: Point2D;
+
+  // Use Catmull-Rom spline if we have neighboring keyframes for smoother curves
+  if (keyframes.length >= 4 && prevIndex > 0 && prevIndex < keyframes.length - 2) {
+    // We have enough context for Catmull-Rom spline interpolation
+    const p0: Point2D = { x: keyframes[prevIndex - 1].x, y: keyframes[prevIndex - 1].y };
+    const p1: Point2D = startPoint;
+    const p2: Point2D = endPoint;
+    const p3: Point2D = { x: keyframes[prevIndex + 2].x, y: keyframes[prevIndex + 2].y };
+
+    // Use arc-length parameterized Catmull-Rom interpolation
+    interpolatedPos = interpolateCatmullRomArcLength(p0, p1, p2, p3, t, easingType);
+  } else {
+    // Use arc-length parameterized linear interpolation
+    // The easing is applied to the arc-length parameter, ensuring uniform speed
+    interpolatedPos = interpolate2DArcLength(startPoint, endPoint, t, easingType, 'linear');
+  }
+
+  // Interpolate size with the same timing (using standard eased t for scalar)
+  const easedT = applyEasing(t, easingType);
   const size =
     prevKeyframe.size !== undefined && nextKeyframe.size !== undefined
       ? prevKeyframe.size + (nextKeyframe.size - prevKeyframe.size) * easedT
       : prevKeyframe.size || nextKeyframe.size;
 
   return {
-    x,
-    y,
+    x: interpolatedPos.x,
+    y: interpolatedPos.y,
     size,
     shape: prevKeyframe.shape || nextKeyframe.shape,
   };

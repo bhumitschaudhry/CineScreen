@@ -1,5 +1,6 @@
 import type { MouseEvent, ZoomConfig } from '../types';
 import { SmoothValue, SmoothPosition2D } from './smooth-motion';
+import { interpolate2DArcLength, interpolatePositionAndValue, type Point2D } from './arc-length';
 
 export interface ZoomRegion {
   timestamp: number;
@@ -219,7 +220,10 @@ export function generateSmoothedZoom(
 }
 
 /**
- * Get zoom region for a specific timestamp
+ * Get zoom region for a specific timestamp using arc-length parameterization
+ *
+ * Arc-length parameterization ensures the zoom center moves at uniform perceived
+ * speed regardless of the X/Y distance ratio between regions.
  */
 export function getZoomRegionAtTimestamp(
   regions: ZoomRegion[],
@@ -246,10 +250,19 @@ export function getZoomRegionAtTimestamp(
 
       if (timestamp >= r1.timestamp && timestamp <= r2.timestamp) {
         const t = (timestamp - r1.timestamp) / (r2.timestamp - r1.timestamp);
+
+        // Use arc-length parameterization for center position
+        // This ensures uniform perceived speed along the path
+        const startCenter: Point2D = { x: r1.centerX, y: r1.centerY };
+        const endCenter: Point2D = { x: r2.centerX, y: r2.centerY };
+        const interpolatedCenter = interpolate2DArcLength(startCenter, endCenter, t, 'easeInOut', 'linear');
+
+        // Scalar values (cropWidth, cropHeight, scale) use standard linear interpolation
+        // with the same timing for consistency
         return {
           timestamp,
-          centerX: r1.centerX + (r2.centerX - r1.centerX) * t,
-          centerY: r1.centerY + (r2.centerY - r1.centerY) * t,
+          centerX: interpolatedCenter.x,
+          centerY: interpolatedCenter.y,
           cropWidth: r1.cropWidth + (r2.cropWidth - r1.cropWidth) * t,
           cropHeight: r1.cropHeight + (r2.cropHeight - r1.cropHeight) * t,
           scale: r1.scale + (r2.scale - r1.scale) * t,

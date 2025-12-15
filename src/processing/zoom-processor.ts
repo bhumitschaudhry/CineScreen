@@ -1,5 +1,6 @@
 import type { ZoomRegion, VideoDimensions } from './zoom-tracker';
 import type { ZoomConfig } from '../types';
+import { interpolate2DArcLength, type Point2D } from './arc-length';
 
 /**
  * Per-frame zoom data for Sharp/Canvas rendering
@@ -48,6 +49,7 @@ export function calculateFrameZoomData(
 
 /**
  * Get zoom data at a specific timestamp by interpolating between regions
+ * Uses arc-length parameterization for center position to ensure uniform perceived speed
  */
 function getZoomDataAtTimestamp(
   regions: ZoomRegion[],
@@ -84,8 +86,16 @@ function getZoomDataAtTimestamp(
   const timeDiff = nextRegion.timestamp - prevRegion.timestamp;
   const t = timeDiff > 0 ? (timestamp - prevRegion.timestamp) / timeDiff : 0;
 
-  const centerX = prevRegion.centerX + (nextRegion.centerX - prevRegion.centerX) * t;
-  const centerY = prevRegion.centerY + (nextRegion.centerY - prevRegion.centerY) * t;
+  // Use arc-length parameterization for center position
+  // This ensures uniform perceived speed along the path regardless of X/Y distance ratio
+  const startCenter: Point2D = { x: prevRegion.centerX, y: prevRegion.centerY };
+  const endCenter: Point2D = { x: nextRegion.centerX, y: nextRegion.centerY };
+  const interpolatedCenter = interpolate2DArcLength(startCenter, endCenter, t, 'easeInOut', 'linear');
+
+  const centerX = interpolatedCenter.x;
+  const centerY = interpolatedCenter.y;
+
+  // Scalar values use standard linear interpolation
   const cropWidth = prevRegion.cropWidth + (nextRegion.cropWidth - prevRegion.cropWidth) * t;
   const cropHeight = prevRegion.cropHeight + (nextRegion.cropHeight - prevRegion.cropHeight) * t;
   const zoomLevel = prevRegion.scale + (nextRegion.scale - prevRegion.scale) * t;
