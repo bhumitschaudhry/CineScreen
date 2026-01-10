@@ -35,6 +35,106 @@ let binaryPath: string | null = null;
 // Platform detection
 const isWindows = process.platform === 'win32';
 
+// Windows: Direct telemetry via koffi (initialized lazily)
+let windowsTelemetryInterval: NodeJS.Timeout | null = null;
+let koffiInitialized = false;
+let user32: any = null;
+let GetCursorPos: any = null;
+let GetAsyncKeyState: any = null;
+let koffiPOINT: any = null;
+
+// Virtual key codes for mouse buttons
+const VK_LBUTTON = 0x01;
+const VK_RBUTTON = 0x02;
+const VK_MBUTTON = 0x04;
+
+/**
+ * Initialize koffi for Windows telemetry
+ * This is called lazily on first use
+ */
+function initializeWindowsTelemetry(): boolean {
+  if (koffiInitialized) {
+    return true;
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const koffi = require('koffi');
+
+    // Load User32.dll
+    user32 = koffi.load('user32.dll');
+
+    // Define POINT struct
+    koffiPOINT = koffi.struct('POINT', {
+      x: 'int32',
+      y: 'int32'
+    });
+
+    // Define Windows API functions
+    GetCursorPos = user32.func('bool __stdcall GetCursorPos(_Out_ POINT* lpPoint)');
+    GetAsyncKeyState = user32.func('short __stdcall GetAsyncKeyState(int vKey)');
+
+    koffiInitialized = true;
+    logger.info('[WINDOWS] Koffi telemetry initialized successfully');
+    return true;
+  } catch (error) {
+    logger.error('[WINDOWS] Failed to initialize koffi telemetry:', error);
+    return false;
+  }
+}
+
+/**
+ * Check if a mouse button is pressed (Windows)
+ */
+function isButtonPressed(vKey: number): boolean {
+  if (!GetAsyncKeyState) return false;
+  const state = GetAsyncKeyState(vKey);
+  return (state & 0x8000) !== 0;
+}
+
+/**
+ * Get mouse telemetry data directly via koffi (Windows only)
+ */
+function getWindowsTelemetryDirect(): MouseTelemetryData {
+  const defaultData: MouseTelemetryData = {
+    cursor: 'arrow',
+    buttons: { left: false, right: false, middle: false },
+    position: { x: 0, y: 0 }
+  };
+
+  if (!initializeWindowsTelemetry()) {
+    return defaultData;
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const koffi = require('koffi');
+
+    // Create buffer for POINT struct
+    const pointBuffer = Buffer.alloc(koffi.sizeof(koffiPOINT));
+    const success = GetCursorPos(pointBuffer);
+
+    let x = 0, y = 0;
+    if (success) {
+      x = pointBuffer.readInt32LE(0);
+      y = pointBuffer.readInt32LE(4);
+    }
+
+    return {
+      cursor: 'arrow',
+      buttons: {
+        left: isButtonPressed(VK_LBUTTON),
+        right: isButtonPressed(VK_RBUTTON),
+        middle: isButtonPressed(VK_MBUTTON)
+      },
+      position: { x, y }
+    };
+  } catch (error) {
+    logger.error('[WINDOWS] Error getting telemetry:', error);
+    return defaultData;
+  }
+}
+
 /**
  * Find the path to the mouse-telemetry binary (macOS) or script (Windows)
  * Works in both development and packaged environments
@@ -144,53 +244,69 @@ export function startTelemetryStream(): void {
   }
 
   try {
-    const binPath = findBinaryPath();
     logger.info('[STREAM] Starting telemetry stream');
 
-    // On Windows, spawn node with the script; on macOS, spawn the binary directly
     if (isWindows) {
-      streamingProcess = spawn('node', [binPath, '--stream'], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+      // On Windows, use inline koffi calls directly
+      // This works in packaged Electron apps where koffi is in node_modules
+      if (!initializeWindowsTelemetry()) {
+        logger.error('[STREAM] Failed to initialize Windows telemetry');
+        return;
+      }
+
+      isStreaming = true;
+
+      // Poll the module at high frequency
+      windowsTelemetryInterval = setInterval(() => {
+        try {
+          latestData = getWindowsTelemetryDirect();
+        } catch (error) {
+          logger.error('[STREAM] Error getting telemetry:', error);
+        }
+      }, 4); // 4ms = 250Hz
+
+      logger.info('[STREAM] Windows telemetry streaming started via inline koffi');
     } else {
+      // macOS: spawn the native binary
+      const binPath = findBinaryPath();
       streamingProcess = spawn(binPath, ['--stream'], {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
+
+      isStreaming = true;
+
+      streamingReader = createInterface({
+        input: streamingProcess.stdout!,
+        crlfDelay: Infinity,
+      });
+
+      streamingReader.on('line', (line) => {
+        try {
+          const data: MouseTelemetryData = JSON.parse(line);
+          latestData = data;
+        } catch {
+          // Ignore parse errors
+        }
+      });
+
+      streamingProcess.on('close', (code) => {
+        logger.info(`[STREAM] Process closed with code ${code}`);
+        isStreaming = false;
+        streamingProcess = null;
+        streamingReader = null;
+      });
+
+      streamingProcess.on('error', (error) => {
+        logger.error('[STREAM] Process error:', error);
+        isStreaming = false;
+        streamingProcess = null;
+        streamingReader = null;
+      });
+
+      streamingProcess.stderr?.on('data', (data) => {
+        logger.debug('[STREAM] stderr:', data.toString());
+      });
     }
-
-    isStreaming = true;
-
-    streamingReader = createInterface({
-      input: streamingProcess.stdout!,
-      crlfDelay: Infinity,
-    });
-
-    streamingReader.on('line', (line) => {
-      try {
-        const data: MouseTelemetryData = JSON.parse(line);
-        latestData = data;
-      } catch {
-        // Ignore parse errors
-      }
-    });
-
-    streamingProcess.on('close', (code) => {
-      logger.info(`[STREAM] Process closed with code ${code}`);
-      isStreaming = false;
-      streamingProcess = null;
-      streamingReader = null;
-    });
-
-    streamingProcess.on('error', (error) => {
-      logger.error('[STREAM] Process error:', error);
-      isStreaming = false;
-      streamingProcess = null;
-      streamingReader = null;
-    });
-
-    streamingProcess.stderr?.on('data', (data) => {
-      logger.debug('[STREAM] stderr:', data.toString());
-    });
 
   } catch (error) {
     logger.error('[STREAM] Failed to start:', error);
@@ -202,13 +318,20 @@ export function startTelemetryStream(): void {
  * Stop the telemetry stream
  */
 export function stopTelemetryStream(): void {
-  if (!isStreaming || !streamingProcess) {
+  if (!isStreaming) {
     return;
   }
 
   logger.info('[STREAM] Stopping telemetry stream');
   isStreaming = false;
 
+  // Windows: clear the interval
+  if (windowsTelemetryInterval) {
+    clearInterval(windowsTelemetryInterval);
+    windowsTelemetryInterval = null;
+  }
+
+  // macOS: clean up the process
   if (streamingReader) {
     streamingReader.close();
     streamingReader = null;
